@@ -1,0 +1,3 @@
+import test from "node:test";import assert from "node:assert/strict";import {renderVyroEmail} from "../src/modules/outreach/email-template.mjs";
+test("branded test preview has safe signature and no live unsubscribe claim",()=>{const x=renderVyroEmail({bodyText:"Hello <team>",preview:true});assert.match(x.html,/VYRO/);assert.match(x.html,/&lt;team&gt;/);assert.match(x.text,/sales@vyro.gr/);assert.match(x.html,/TEST PREVIEW ONLY/);});
+test("live marketing email requires actual HTTPS unsubscribe link",()=>{assert.throws(()=>renderVyroEmail({bodyText:"Hello"}),/unsubscribe/);const x=renderVyroEmail({bodyText:"Hello",unsubscribeUrl:"https://vyro.gr/unsubscribe?token=sample"});assert.match(x.html,/unsubscribe\?token=sample/);});
