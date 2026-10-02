@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { assertSendEligible } from '../src/modules/outreach/send-eligibility.mjs';
+const email = 'buyer@example.com';
+const prospect = { identity_status:'certified', verification_status:'verified', suppression_status:'passed', relevance_status:'relevant', contactability_status:'contactable' };
+const contacts = [{channel:'email',value:email,verification_status:'verified',source_url:'https://example.com/contact'}];
+test('eligible address passes live suppression check',async()=>{const x=await assertSendEligible({email,prospect,contacts,db:{query:async()=>({rows:[]})}});assert.equal(x.eligible,true);});
+test('suppressed address fails closed',async()=>{await assert.rejects(assertSendEligible({email,prospect,contacts,db:{query:async()=>({rows:[{exists:1}]})}}),/EMAIL_SUPPRESSED/);});
+test('database outage fails closed',async()=>{await assert.rejects(assertSendEligible({email,prospect,contacts,db:{query:async()=>{throw new Error('offline');}}}),/offline/);});
+test('unverified contacts fail closed',async()=>{await assert.rejects(assertSendEligible({email,prospect,contacts:[],db:{query:async()=>({rows:[]})}}),/NO_VERIFIED_MATCHING_EMAIL/);});
