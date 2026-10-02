@@ -38,3 +38,16 @@ test("repeated input produces identical fingerprint and accepted IDs",()=>{
  assert.equal(a.sha256,b.sha256);
  assert.deepEqual(a.accepted.map(r=>r.recordId),b.accepted.map(r=>r.recordId));
 });
+test("accepts legacy supervisor category labels without rewriting the original ledger",()=>{
+ const columns="Record ID,Batch ID,Worker Category,Entity,Source URL,Supervisor Status,Supervisor Source Ledger";
+ const examples=[
+ ["SUP","Supply / Strategic Partner"],["B2C","B2C Customer"],["BRK","Broker / Referral Partner"],["RES","RES"]];
+ for(const [code,label] of examples){
+  const batch=code+"-20261002-B005",id=batch+"-R001";
+  const csv=columns+"\n"+[id,batch,label,"Example Shop","https://example.org/source","VERIFIED NEW","supervisor.csv"].join(",")+"\n";
+  const result=validateLedger(csv,{requireSupervisorVerified:true});
+  assert.equal(result.rejected.length,0,label);
+  assert.equal(result.accepted[0].sourceWorker,code);
+  assert.equal(result.accepted[0].rawPayload["Worker Category"],label);
+ }
+});
