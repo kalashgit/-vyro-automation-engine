@@ -1,6 +1,6 @@
 {
   "name": "vyro-automation-engine",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "engines": {
     "node": "22.x"
@@ -11,13 +11,16 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit",
-    "test:smoke": "node scripts/smoke.mjs"
+    "test:smoke": "node scripts/smoke.mjs",
+    "db:migrate": "node --experimental-strip-types scripts/migrate.mjs",
+    "test": "node --experimental-strip-types --test --test-concurrency=1 tests/*.test.ts tests/*.test.mjs"
   },
   "dependencies": {
     "next": "16.3.8",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "server-only": "0.0.1"
+    "server-only": "0.0.1",
+    "pg": "^8.16.3"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
@@ -25,6 +28,8 @@
     "@types/react-dom": "19.3.0",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.8",
-    "typescript": "5.9.3"
-  }
+    "typescript": "5.9.3",
+    "@types/pg": "^8.15.6"
+  },
+  "type": "module"
 }

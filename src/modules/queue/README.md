@@ -1,5 +1,5 @@
 # Queue
 
-Reserved for: Durable job queue, atomic claims, leases/locks, retries, and dead-job recovery.
+Implemented durable PostgreSQL lifecycle primitives in `queue.ts` and typed contracts in `types.ts`. See [design](../../../docs/persistent-queue.md).
 
-Phase 1 contains no implementation of this module.
+No worker dispatcher, polling loop, or outbound handler is started by this module.

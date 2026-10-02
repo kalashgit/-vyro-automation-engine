@@ -1,5 +1,5 @@
 # Database
 
-Reserved for: Server-side persistence clients, schema, and migrations.
+Typed PostgreSQL pools and a transactional checksum-protected migration runner are implemented. SQL lives in `migrations/`; apply it explicitly using `npm run db:migrate`.
 
-Phase 1 contains no implementation of this module.
+The module does not provision a hosted database, run startup migrations, or import production prospects. See [deployment and integrity](../../../docs/persistent-queue.md).
