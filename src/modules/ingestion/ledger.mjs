@@ -36,13 +36,13 @@ export function parseCsv(text) {
 function safeText(value,max=200) {return typeof value==="string" && value.length>0 && value.length<=max && !value.includes("\0");}
 export function validateLedger(csv, options={}) {
   const rows=parseCsv(csv), seenIds=new Set(), rejected=[], accepted=[];
-  const allowed=new Set(["B2B","B2C","RES","BRK","CRE","COM","SUP"]);
+  const aliases=new Map([["B2B","B2B"],["B2C","B2C"],["RES","RES"],["BRK","BRK"],["CRE","CRE"],["COM","COM"],["SUP","SUP"],["Supply / Strategic Partner","SUP"],["B2C Customer","B2C"],["Broker / Referral Partner","BRK"],["B2B Buyer","B2B"],["Reseller","RES"],["Creator / Influencer","CRE"],["Community / Distribution Owner","COM"]]);
   const originalHash=createHash("sha256").update(csv).digest("hex");
   for(const [index,row] of rows.entries()){
-    const id=row["Record ID"],batch=row["Batch ID"],category=row["Worker Category"];
+    const id=row["Record ID"],batch=row["Batch ID"],category=aliases.get(row["Worker Category"]);
     let reason=null;
-    if(!safeText(id) || !safeText(batch) || !allowed.has(category)) reason="invalid_source_identity";
-    else if(!id.startsWith(category+"-") || !id.includes(batch.slice(category.length))) reason="id_batch_mismatch";
+    if(!safeText(id) || !safeText(batch) || !category) reason="invalid_source_identity";
+    else if(!batch.startsWith(category+"-") || !id.startsWith(batch+"-")) reason="id_batch_mismatch";
     else if(seenIds.has(id)) reason="duplicate_record_id_in_file";
     else if(!safeText(row.Entity,300) || !safeText(row["Source URL"],2048)) reason="missing_identity_or_source";
     else if(!/^https?:\/\//i.test(row["Source URL"])) reason="invalid_source_url";
