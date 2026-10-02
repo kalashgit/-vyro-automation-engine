@@ -33,10 +33,13 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
    assert.equal(source.rows[0].verification_status,"unverified");
    assert.equal(source.rows[0].original_source_evidence.sourceUrl,"https://example.org/source");
  });
- test("different same-batch evidence fails closed without partial writes",async()=>{
-   await assert.rejects(importVerifiedLedger(fixture.pool,ledger(a),{filename:"different.csv"}),/different evidence/);
-   const {rows:[count]}=await fixture.pool.query("SELECT count(*)::int AS n FROM import_batches");
-   assert.equal(count.n,1);
+ test("different verified files can contribute distinct rows from the same original batch",async()=>{
+   const extra=line(b1+"-R003",b1,"Third Shop","https://third-shop.example");
+   const result=imported(await importVerifiedLedger(fixture.pool,ledger(extra),{filename:"second-supervisor-file.csv"}));
+   assert.equal(result.rawRows,1); assert.equal(result.prospects,1);
+   const batches=await fixture.pool.query("SELECT original_source_evidence->>'sourceBatch' AS original_batch,source_batch AS audit_batch FROM import_batches ORDER BY created_at");
+   assert.equal(batches.rows.length,2);
+   assert.ok(batches.rows.every(r=>r.original_batch===b1 && r.audit_batch.startsWith(b1+"#")));
  });
  test("new batch with same canonical domain is audited for manual review",async()=>{
    const id=b2+"-R001";
@@ -51,7 +54,7 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
    const report=await importVerifiedLedger(fixture.pool,ledger(pending));
    assert.equal(report.status,"rejected");
    const {rows:[count]}=await fixture.pool.query("SELECT count(*)::int AS n FROM import_batches");
-   assert.equal(count.n,2);
+   assert.equal(count.n,3);
  });
  test("social-only countryless records retain raw audit without fabricating prospect identity",async()=>{
    const batch="B2B-20261002-B004";
