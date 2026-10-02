@@ -10,7 +10,7 @@ export async function GET(request: Request) {
   const snapshot = await getControlPlaneSnapshot();
   return Response.json({
     ...getHealth(), status: "not_ready", engine: "not_operational",
-    checks: { database: snapshot.database, worker: "not_configured", watchdog: "not_configured" },
-    description: "An independent worker has not been deployed and tested.",
+    checks: { database: snapshot.database, worker: snapshot.worker, watchdog: snapshot.watchdog },
+    description: "Queue processing and outbound integrations are not operationally enabled.",
   }, { status: 503, headers: { "Cache-Control": "no-store" } });
 }

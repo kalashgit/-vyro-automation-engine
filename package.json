@@ -9,6 +9,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "worker": "node --experimental-strip-types scripts/worker.mjs",
+    "watchdog": "node --experimental-strip-types scripts/watchdog.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit",
     "test:smoke": "node scripts/smoke.mjs",
