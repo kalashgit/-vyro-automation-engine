@@ -140,3 +140,12 @@ footer {
   .module-grid { grid-template-columns: 1fr; }
   .panel { padding: 24px; }
 }
+
+.queue-counts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 16px;
+}
+.queue-counts dt { color: var(--muted); font-size: 0.75rem; }
+.queue-counts dd { margin: 0; font-size: 1.2rem; font-weight: 700; }

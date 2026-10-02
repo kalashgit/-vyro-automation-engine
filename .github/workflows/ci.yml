@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, phase-2/persistent-queue]
   pull_request:
 
 permissions:
@@ -14,11 +14,26 @@ concurrency:
 
 jobs:
   validate:
-    name: Install, lint, types, build, and smoke
+    name: PostgreSQL tests and application checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: vyro_test
+          POSTGRES_USER: vyro
+          POSTGRES_PASSWORD: local-ci-fixture-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vyro -d vyro_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       NEXT_TELEMETRY_DISABLED: "1"
+      TEST_DATABASE_URL: postgresql://vyro:local-ci-fixture-only@127.0.0.1:5432/vyro_test
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -37,7 +52,16 @@ jobs:
         run: npm run lint
       - name: Check TypeScript
         run: npm run typecheck
+      - name: Test migrations, transactional claims, fencing, retries, and recovery
+        run: npm test
+      - name: Verify migration CLI against the disposable CI database
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          DATABASE_SSL_MODE: disable
+        run: |
+          npm run db:migrate
+          npm run db:migrate
       - name: Build production application
         run: npm run build
-      - name: Verify production HTTP routes
+      - name: Verify production HTTP routes and admin authentication
         run: npm run test:smoke
