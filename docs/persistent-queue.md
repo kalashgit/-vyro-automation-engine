@@ -65,6 +65,14 @@ Exhausted jobs become `dead` with terminal timestamps. Recovery is explicit,
 bounded, and safe under concurrency; the later worker/watchdog must call it.
 Nothing runs automatically in the web server.
 
+The independent worker claims only job types with explicitly registered
+handlers. The checked-in handler registry is empty, so starting the worker does
+not claim jobs. The watchdog periodically calls bounded expired-lease recovery.
+Both processes record durable heartbeats and stop cleanly on termination; these
+heartbeats report process liveness, not job progress. Their scripts require
+explicit `WORKER_ENABLED=true` or `WATCHDOG_ENABLED=true` opt-in and are not
+invoked by Next.js or Vercel.
+
 Enqueue is idempotent for matching type, payload, scheduling intent, and retry
 settings. Reusing an idempotency key for different intent raises a conflict.
 Keep idempotency keys stable for logical work rather than generating a new key
@@ -91,10 +99,11 @@ worker readiness are reported separately. Queue depth is a database observation,
 not proof that jobs are being executed.
 
 Provision PostgreSQL with TLS, run migrations explicitly, configure the web
-deployment, and verify authenticated readiness/database observations.
-Then build/deploy/test an independent persistent worker in the next milestone,
-including graceful shutdown, lease renewal, retry scheduling, recovery, and a
-worker heartbeat registry. Vercel hosts only the control plane.
+deployment, and verify authenticated readiness/database observations. The
+independent process infrastructure exists, but configuring/deploying persistent
+worker and watchdog hosts remains a separate approval-gated operation. Register
+job handlers, including any outbound integration, only in an explicitly approved
+future milestone. Vercel hosts only the control plane.
 
 The test PostgreSQL service and synthetic fixtures exist only in disposable CI
 or local `_test` databases; they are not a production deployment or live prospects.

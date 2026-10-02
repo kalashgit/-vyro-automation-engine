@@ -3,7 +3,7 @@
 VYRO's automation control plane is separate from the VYRO customer storefront.
 Next.js 16, TypeScript, App Router, and the existing Phase 1 liveness endpoint remain.
 
-## Current status: Phase 2, first milestone
+## Current status: Phase 2, Milestone 2
 
 The engine is **NOT OPERATIONAL**. This milestone adds PostgreSQL storage,
 versioned migrations, a durable queue, atomic claims, fenced leases, heartbeats,
@@ -14,14 +14,17 @@ real queue counts only when a migrated database is configured and reachable.
 Missing database settings show **NOT CONFIGURED**; connection/schema errors show
 **UNAVAILABLE**. Workers and Watchdog remain **NOT CONFIGURED**.
 
-No ingestion adapter, enrichment/reconciliation implementation, certification
-metrics, worker process, manual job-run UI, or outbound messaging is implemented.
-Issue #2 remains open for its later milestones.
+Milestone 2 adds independent worker/watchdog process loops, lease renewal,
+durable process heartbeats, bounded lease recovery, graceful shutdown, and tests.
+The production worker handler registry remains empty: no jobs are dispatched,
+and there is no outreach or provider integration. No ingestion adapter,
+enrichment/reconciliation implementation, certification metrics, or manual
+job-run UI is implemented. Issue #2 remains open for later milestones.
 
 - `/api/health`: public HTTP liveness; preserves the Phase 1 JSON contract.
 - `/`: authenticated control-plane dashboard, always **NOT OPERATIONAL** in this milestone.
 - `/api/readiness`: authenticated database readiness and separate worker/watchdog
-  status. It returns 503 until the independently deployed worker milestone is implemented.
+  process liveness. It remains 503 because the engine and handlers are not operational.
 - Last heartbeat remains the timestamp of this HTTP response, explicitly separate
   from the future independent worker heartbeat.
 
@@ -123,11 +126,13 @@ Set admin credentials in the deployment environment; without them the dashboard
 deliberately returns 503. Set the database variables only after provisioning
 PostgreSQL and applying migrations.
 
-Required deployment work is separate from this PR: provision PostgreSQL, run
-migrations, verify protected DB readiness, then implement/deploy/test a persistent
-independent Node worker and watchdog in the next milestone. No continuous worker
-runs inside a Vercel request handler. A successful Vercel web deployment does not
-mean the automation engine is operating.
+The independent processes can be invoked explicitly with `WORKER_ENABLED=true npm
+run worker` and `WATCHDOG_ENABLED=true npm run watchdog`; both require migration
+`0002_worker_processes.sql`. The worker currently has no registered job handlers,
+so it will not claim jobs. Do not set these opt-in flags in Vercel. Persistent
+worker/watchdog host configuration and deployment are intentionally out of
+scope without approval. No continuous worker runs inside a Vercel request handler.
+A successful Vercel web deployment does not mean the automation engine is operating.
 
 ## Structure
 
