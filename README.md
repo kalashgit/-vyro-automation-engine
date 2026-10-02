@@ -49,7 +49,8 @@ Basic authentication requires HTTPS outside local development; Vercel provides H
 Use PostgreSQL **15 or newer** (CI uses PostgreSQL 16). Configure `DATABASE_URL`.
 Certificate verification is enabled by default. Use `DATABASE_SSL_CA` for a
 custom trusted CA if required. `DATABASE_SSL_MODE=disable` is accepted only for
-loopback development/CI. Put SSL settings in these variables, not URL query parameters.
+loopback development/CI. Put SSL settings in these variables. DATABASE_URL rejects all query parameters and fragments
+to prevent host, credential, and TLS overrides.
 
 Run migrations as an explicit deployment step with a migration role and a direct
 or session-pooled connection. Transaction poolers do not preserve session advisory

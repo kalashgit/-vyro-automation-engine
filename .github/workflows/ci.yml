@@ -1,8 +1,9 @@
-name: Bootstrap Phase 2 dependency verification
+name: CI
 
 on:
   push:
-    branches: [phase-2/persistent-queue]
+    branches: [main, phase-2/persistent-queue]
+  pull_request:
 
 permissions:
   contents: read
@@ -13,9 +14,6 @@ concurrency:
 
 jobs:
   validate:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/phase-2/persistent-queue'
-    permissions:
-      contents: write
     name: PostgreSQL tests and application checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -46,24 +44,8 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - name: Install and pin changed dependencies
-        run: |
-          npm install --no-fund
-          node <<'NODE'
-          const fs = require("node:fs");
-          const path = require("node:path");
-          const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
-          for (const group of ["dependencies", "devDependencies"]) {
-            for (const name of Object.keys(manifest[group] ?? {})) {
-              const installed = JSON.parse(fs.readFileSync(path.join("node_modules", name, "package.json"), "utf8"));
-              if (installed.name !== name || typeof installed.version !== "string") throw new Error("Cannot pin package " + name);
-              manifest[group][name] = installed.version;
-            }
-          }
-          fs.writeFileSync("package.json", JSON.stringify(manifest, null, 2) + "\n");
-          NODE
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          npm ci --no-audit --no-fund
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Lint
@@ -72,24 +54,14 @@ jobs:
         run: npm run typecheck
       - name: Test migrations, transactional claims, fencing, retries, and recovery
         run: npm test
+      - name: Verify migration CLI against the disposable CI database
+        env:
+          DATABASE_URL: ${{ env.TEST_DATABASE_URL }}
+          DATABASE_SSL_MODE: disable
+        run: |
+          npm run db:migrate
+          npm run db:migrate
       - name: Build production application
         run: npm run build
       - name: Verify production HTTP routes and admin authentication
         run: npm run test:smoke
-      - name: Commit tested dependency manifest and lockfile
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ github.sha }}
-          TARGET_BRANCH: ${{ github.ref_name }}
-        run: |
-          git fetch --no-tags origin "$TARGET_BRANCH"
-          if [ "$(git rev-parse FETCH_HEAD)" != "$EXPECTED_SHA" ]; then
-            echo "::error::Branch changed during validation; refusing to push."
-            exit 1
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- package.json package-lock.json
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "Lock tested PostgreSQL queue dependencies"
-          git -c credential.helper= push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${TARGET_BRANCH}"

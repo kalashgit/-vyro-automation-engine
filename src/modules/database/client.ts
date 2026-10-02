@@ -9,7 +9,6 @@ export interface DatabaseOptions {
   sslCa?: string;
 }
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-const sslUrlParameters = ["sslmode", "sslcert", "sslkey", "sslrootcert", "ssl"];
 function validatedConnectionUrl(connectionString: string): URL {
   let url: URL;
   try { url = new URL(connectionString); }
@@ -17,8 +16,8 @@ function validatedConnectionUrl(connectionString: string): URL {
   if (!["postgres:", "postgresql:"].includes(url.protocol) || !url.hostname || url.pathname.length <= 1) {
     throw new Error("DATABASE_URL must identify a PostgreSQL host and database.");
   }
-  if (sslUrlParameters.some((key) => url.searchParams.has(key))) {
-    throw new Error("Configure PostgreSQL TLS with DATABASE_SSL_MODE and DATABASE_SSL_CA; remove SSL parameters from DATABASE_URL.");
+  if (url.search || url.hash) {
+    throw new Error("DATABASE_URL must not contain query parameters or fragments. Configure TLS with DATABASE_SSL_MODE and DATABASE_SSL_CA.");
   }
   return url;
 }
