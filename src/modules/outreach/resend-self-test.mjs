@@ -18,7 +18,7 @@ export function prepareSelfTest({to,from,allowedTo,testId,replyTo}){
  };
 }
 export async function runSelfTest({to,from,allowedTo,testId,apiKey,confirmSend=false,fetchImpl=fetch,environment=process.env}){
- const payload=prepareSelfTest({to,from,allowedTo,testId,replyTo:getVyroReplyTo(environment)});
+ const payload=prepareSelfTest({to,from,allowedTo,testId,replyTo:environment.VYRO_REPLY_TO ? getVyroReplyTo(environment) : undefined});
  if(!confirmSend)return {mode:"DRY_RUN",wouldSendTo:payload.to[0],testId,sent:false};
  if(typeof apiKey!=="string"||!apiKey.startsWith("re_"))throw new Error("RESEND_API_KEY is required for a live test.");
  const response=await fetchImpl("https://api.resend.com/emails",{
