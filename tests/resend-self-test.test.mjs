@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {prepareSelfTest,runSelfTest} from "../src/modules/outreach/resend-self-test.mjs";
-const options={to:"owner@example.org",from:"VYRO <test@vyro.gr>",allowedTo:"owner@example.org",testId:"test_12345678"};
+const options={to:"owner@example.org",from:"test@vyro.gr",allowedTo:"owner@example.org",testId:"test_12345678"};
 test("rejects addresses outside explicit allowlist before network access",async()=>{
  let calls=0;
  await assert.rejects(runSelfTest({...options,to:"prospect@example.net",confirmSend:true,apiKey:"re_example",fetchImpl:async()=>{calls++;return {ok:true,json:async()=>({id:"x"})}}}),/NOT_ALLOWLISTED/);
