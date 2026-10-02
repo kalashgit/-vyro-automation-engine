@@ -20,7 +20,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "0.0.1",
-    "pg": "^8.16.3"
+    "pg": "8.23.1"
   },
   "devDependencies": {
     "@types/node": "22.20.5",
@@ -29,7 +29,7 @@
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.8",
     "typescript": "5.9.3",
-    "@types/pg": "^8.15.6"
+    "@types/pg": "8.23.1"
   },
   "type": "module"
 }
