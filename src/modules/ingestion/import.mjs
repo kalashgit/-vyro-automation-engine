@@ -36,10 +36,14 @@ export async function importVerifiedLedger(pool,csv,options={}) {
     // Serialize imports across processes; prevents two replays racing on the same batch key.
     for(const sourceKey of report.batches.sort()){
       const [worker,...batchParts]=sourceKey.split("|");const batch=batchParts.join("|");
+      // Supervisor files may each contain distinct subsets of one original worker batch.
+      // Scope the immutable audit batch to exact source file content; never rewrite the original Batch ID.
+      const auditBatch=batch+"#"+report.sha256.slice(0,16);
+      if(auditBatch.length>200) throw new Error("Source batch ID exceeds the audit key limit.");
       const records=report.accepted.filter(r=>r.sourceWorker===worker && r.sourceBatch===batch);
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",[sourceKey]);
-      const evidence={csvSha256:report.sha256,sourceBatch:batch,filename:options.filename||"",mode:"supervisor_verified",certification:"source_claim_only"};
-      const existing=await client.query("SELECT batch_id,original_source_evidence,raw_discovered_count FROM import_batches WHERE source_worker=$1 AND source_batch=$2",[worker,batch]);
+      const evidence={csvSha256:report.sha256,sourceBatch:batch,auditBatch,filename:options.filename||"",mode:"supervisor_verified",certification:"source_claim_only"};
+      const existing=await client.query("SELECT batch_id,original_source_evidence,raw_discovered_count FROM import_batches WHERE source_worker=$1 AND source_batch=$2",[worker,auditBatch]);
       if(existing.rows.length){
         const prev=existing.rows[0];
         if(!sameSource(prev.original_source_evidence,evidence)||Number(prev.raw_discovered_count)!==records.length)
@@ -50,7 +54,7 @@ export async function importVerifiedLedger(pool,csv,options={}) {
       }
       const inserted=await client.query(
         "INSERT INTO import_batches(source_worker,source_batch,original_source_evidence,raw_discovered_count) VALUES($1,$2,$3::jsonb,$4) RETURNING batch_id",
-        [worker,batch,JSON.stringify(evidence),records.length]);
+        [worker,auditBatch,JSON.stringify(evidence),records.length]);
       const batchId=inserted.rows[0].batch_id;totals.batches++;
       for(const [index,record] of records.entries()){
         const {rows:[audit]}=await client.query(
