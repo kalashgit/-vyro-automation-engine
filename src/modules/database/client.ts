@@ -21,7 +21,7 @@ function validatedConnectionUrl(connectionString: string): URL {
   }
   return url;
 }
-export function isDatabaseConfigured(environment: Readonly<{ DATABASE_URL?: string }> = process.env): boolean {
+export function isDatabaseConfigured(environment: Readonly<Record<string, string | undefined>> = process.env): boolean {
   return Boolean(environment.DATABASE_URL?.trim());
 }
 export function createDatabasePool(options: DatabaseOptions): Pool {
