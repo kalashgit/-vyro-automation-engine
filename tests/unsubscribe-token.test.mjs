@@ -1,0 +1,4 @@
+import test from "node:test";import assert from "node:assert/strict";import {createUnsubscribeToken,verifyUnsubscribeToken,buildUnsubscribeUrl} from "../src/modules/outreach/unsubscribe-token.mjs";
+const secret="test-secret-at-least-thirty-two-characters";
+test("valid signed opt-out token round trips and builds HTTPS link",()=>{const token=createUnsubscribeToken("Test@Example.com",secret);assert.equal(verifyUnsubscribeToken(token,secret),"test@example.com");assert.match(buildUnsubscribeUrl("test@example.com",secret,"https://vyro.gr"),/^https:\/\/vyro.gr\/unsubscribe\?token=/);});
+test("rejects tampering, weak secrets and non-HTTPS",()=>{const token=createUnsubscribeToken("test@example.com",secret);assert.equal(verifyUnsubscribeToken(token+"x",secret),null);assert.equal(verifyUnsubscribeToken(token,"wrong"),null);assert.throws(()=>buildUnsubscribeUrl("test@example.com",secret,"http://vyro.gr"),/HTTPS/);});
