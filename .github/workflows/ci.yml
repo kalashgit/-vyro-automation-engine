@@ -1,23 +1,22 @@
-name: Bootstrap foundation verification
+name: CI
 
 on:
   push:
     branches: [main]
+  pull_request:
 
 permissions:
   contents: read
 
 concurrency:
-  group: bootstrap-foundation
-  cancel-in-progress: false
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   validate:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Install, lint, types, build, and smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: write
     env:
       NEXT_TELEMETRY_DISABLED: "1"
     steps:
@@ -29,29 +28,9 @@ jobs:
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version-file: .nvmrc
-      - name: Install and pin initial dependency versions
-        run: |
-          test ! -f package-lock.json
-          npm install --no-fund
-          node <<'NODE'
-          const fs = require("node:fs");
-          const path = require("node:path");
-          const manifest = JSON.parse(fs.readFileSync("package.json", "utf8"));
-          for (const group of ["dependencies", "devDependencies"]) {
-            for (const name of Object.keys(manifest[group] ?? {})) {
-              const installed = JSON.parse(
-                fs.readFileSync(path.join("node_modules", name, "package.json"), "utf8"),
-              );
-              if (installed.name !== name || typeof installed.version !== "string") {
-                throw new Error("Cannot pin installed package " + name);
-              }
-              manifest[group][name] = installed.version;
-            }
-          }
-          fs.writeFileSync("package.json", JSON.stringify(manifest, null, 2) + "\n");
-          NODE
-          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          npm ci --no-audit --no-fund
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Lint
@@ -62,22 +41,3 @@ jobs:
         run: npm run build
       - name: Verify production HTTP routes
         run: npm run test:smoke
-      - name: Commit tested dependency versions and lockfile
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EXPECTED_SHA: ${{ github.sha }}
-          TARGET_BRANCH: ${{ github.ref_name }}
-        run: |
-          git fetch --no-tags origin "$TARGET_BRANCH"
-          if [ "$(git rev-parse FETCH_HEAD)" != "$EXPECTED_SHA" ]; then
-            echo "::error::Branch changed during validation; refusing to push."
-            exit 1
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- package.json package-lock.json
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "Pin tested VYRO application dependencies"
-          git -c credential.helper= push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${TARGET_BRANCH}"
