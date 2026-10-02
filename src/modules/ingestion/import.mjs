@@ -3,12 +3,12 @@ import { validateLedger } from "./ledger.mjs";
 
 const countryCodes = new Map([["greece","GR"],["ελλάδα","GR"],["hellas","GR"],["gr","GR"],["germany","DE"],["de","DE"],["italy","IT"],["it","IT"],["poland","PL"],["pl","PL"],["cyprus","CY"],["cy","CY"],["austria","AT"],["at","AT"],["france","FR"],["fr","FR"],["spain","ES"],["es","ES"],["united kingdom","GB"],["uk","GB"],["gb","GB"]]);
 const socialHosts = new Set(["instagram.com","facebook.com","linkedin.com","tiktok.com","youtube.com","x.com","twitter.com","wa.me","maps.google.com"]);
-function cleanName(value) { const name=value?.normalize("NFKC").trim().toLowerCase().replace(/\\s+/g," "); return name && name.length<=300? name:null; }
+function cleanName(value) { const name=value?.normalize("NFKC").trim().toLowerCase().replace(/\s+/g," "); return name && name.length<=300? name:null; }
 function domain(value) {
-  if (!value || !/^https?:\\/\\//i.test(value)) return null;
+  if (!value || !/^https?:\/\//i.test(value)) return null;
   try {
-    const u=new URL(value), hostname=u.hostname.toLowerCase().replace(/^www\\./,"");
-    if(!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)
+    const u=new URL(value), hostname=u.hostname.toLowerCase().replace(/^www\./,"");
+    if(!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)
       ||hostname.length>253||socialHosts.has(hostname)) return null;
     return hostname;
   } catch { return null; }
