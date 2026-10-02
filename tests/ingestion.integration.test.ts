@@ -23,7 +23,7 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
    const csv=ledger(a,b);
    const first=imported(await importVerifiedLedger(fixture.pool,csv,{filename:"sample.csv"}));
    assert.deepEqual([first.rawRows,first.prospects,first.conflicts,first.replayed],[2,2,0,0]);
-   const repeated=imported(await importVerifiedLedger(fixture.pool,csv,{filename:"sample.csv"});
+   const repeated=imported(await importVerifiedLedger(fixture.pool,csv,{filename:"sample.csv"}));
    assert.equal(repeated.replayed,2);assert.equal(repeated.prospects,0);
    const {rows:[count]}=await fixture.pool.query(
      "SELECT (SELECT count(*)::int FROM import_batches) batches,(SELECT count(*)::int FROM import_rows) rows,(SELECT count(*)::int FROM prospects) prospects");
