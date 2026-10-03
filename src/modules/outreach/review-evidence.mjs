@@ -16,9 +16,9 @@ export function validateOfficialEvidence(urlValue, canonicalDomain) {
   if (host !== canonicalDomain && host !== 'www.' + canonicalDomain) throw new Error('EVIDENCE_MUST_USE_OFFICIAL_DOMAIN');
   return url.href;
 }
-export function validateReviewConfirmation(form) {
-  if (form.get('exactEmailObserved') !== 'yes' || form.get('businessIdentityConfirmed') !== 'yes'
-    || form.get('businessRelevanceConfirmed') !== 'yes') {
+export function validateReviewConfirmation(input) {
+  if (input?.exactEmailObserved !== true || input?.businessIdentityConfirmed !== true
+    || input?.businessRelevanceConfirmed !== true) {
     throw new Error('REVIEW_CONFIRMATION_REQUIRED');
   }
   // Local review evidence is not proof of legal entitlement to contact a recipient.
