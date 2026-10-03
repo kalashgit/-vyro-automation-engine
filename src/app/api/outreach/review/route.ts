@@ -1,6 +1,6 @@
 import { requireAdmin } from '@/lib/admin-auth';
 import { getDatabasePool, withTransaction } from '@/modules/database/client';
-import { normalizeBusinessEmail, validateOfficialEvidence, validateReviewConfirmation } from '@/modules/outreach/review-evidence.mjs';
+import { normalizeBusinessEmail, validateOfficialEvidence } from '@/modules/outreach/review-evidence.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
               count(c.contact_id)::integer AS email_contacts
          FROM prospects p LEFT JOIN contact_points c
            ON c.record_id=p.record_id AND c.channel='email'
-        GROUP BY p.record_id ORDER BY p.created_at, p.record_id LIMIT 50`
+        WHERE p.suppression_status='unchecked'\n        GROUP BY p.record_id ORDER BY p.created_at, p.record_id LIMIT 50`
     );
     return Response.json({ prospects: result.rows }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
@@ -73,17 +73,14 @@ export async function POST(request: Request) {
                suppression_status='unchecked', suppression_reason=NULL, suppression_checked_at=NULL, updated_at=now()
          WHERE record_id=$1`, [recordId, evidenceUrl]
       );
-      const { rows: [pending] } = await client.query(
-        `SELECT EXISTS(SELECT 1 FROM jobs
-          WHERE type='suppression_check' AND payload->>'recordId'=$1
-            AND status IN ('queued','retry','leased')) AS pending`, [recordId]);
-      if (!pending.pending) {
-        await client.query(
-          `INSERT INTO jobs(type,payload,idempotency_key)
-           VALUES('suppression_check',jsonb_build_object('recordId',$1::text),$2)`,
-          [recordId, 'suppression-review-' + crypto.randomUUID()]
-        );
-      }
+      // Always queue a fresh check for this review. Existing leased checks may
+      // finish before this transaction commits, so relying on one pending job
+      // could leave a re-reviewed prospect indefinitely unchecked.
+      await client.query(
+        `INSERT INTO jobs(type,payload,idempotency_key)
+         VALUES('suppression_check',jsonb_build_object('recordId',$1::text),$2)`,
+        [recordId, 'suppression-review-' + crypto.randomUUID()]
+      );
       return { status: 202, result: 'REVIEW_RECORDED_SUPPRESSION_QUEUED' };
     });
     if ('error' in result) return Response.json({ error: result.error }, { status: result.status });
