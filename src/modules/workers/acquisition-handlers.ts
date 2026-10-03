@@ -75,5 +75,37 @@ export function createAcquisitionHandlers(pool: Pool): JobHandlers {
        await client.query("COMMIT");
      }catch(e){await client.query("ROLLBACK");throw e;}finally{client.release();}
    },
+   suppression_check: async (job,{signal})=>{
+     const recordId=job.payload.recordId;
+     if(!validRecordId(recordId))throw new JobExecutionError("INVALID_RECORD_ID",{retryable:false});
+     if(signal.aborted)return;
+     const client=await pool.connect();
+     try {
+       await client.query("BEGIN");
+       const {rows:[p]}=await client.query(
+         "SELECT identity_status,verification_status,relevance_status,contactability_status FROM prospects WHERE record_id=$1 FOR UPDATE",[recordId]);
+       if(!p)throw new JobExecutionError("UNKNOWN_RECORD_ID",{retryable:false});
+       if(p.identity_status!=="certified"||p.verification_status!=="verified"||
+         p.relevance_status!=="relevant"||p.contactability_status!=="contactable") {
+         throw new JobExecutionError("REVIEW_NOT_COMPLETE",{retryable:false});
+       }
+       const {rows:contacts}=await client.query(
+         "SELECT value FROM contact_points WHERE record_id=$1 AND channel='email' AND verification_status='verified' AND source_url LIKE 'https://%'",
+         [recordId]);
+       if(!contacts.length)throw new JobExecutionError("NO_VERIFIED_EMAIL",{retryable:false});
+       const {rows:[result]}=await client.query(
+         `SELECT EXISTS(
+            SELECT 1 FROM contact_points c JOIN email_suppressions s
+              ON s.email_normalized=lower(btrim(c.value))
+            WHERE c.record_id=$1 AND c.channel='email'
+          ) AS suppressed`,[recordId]);
+       if(signal.aborted){await client.query("ROLLBACK");return;}
+       await client.query(
+         "UPDATE prospects SET suppression_status=$2, suppression_reason=$3, suppression_checked_at=now(),updated_at=now() WHERE record_id=$1",
+         [recordId,result.suppressed?"suppressed":"passed",result.suppressed?"recipient_unsubscribed":null]
+       );
+       await client.query("COMMIT");
+     }catch(e){await client.query("ROLLBACK");throw e;}finally{client.release();}
+   },
  };
 }

@@ -9,4 +9,4 @@ export function proxy(request: NextRequest) {
   if (denied) return denied;
   return NextResponse.next({ headers: { "Cache-Control": "no-store" } });
 }
-export const config = { matcher: ["/", "/api/:path*"] };
+export const config = { matcher: ["/", "/review", "/api/:path*"] };
