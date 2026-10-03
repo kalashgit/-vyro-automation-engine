@@ -1,6 +1,6 @@
 import { requireAdmin } from '@/lib/admin-auth';
 import { getDatabasePool, withTransaction } from '@/modules/database/client';
-import { normalizeBusinessEmail, validateOfficialEvidence } from '@/modules/outreach/review-evidence.mjs';
+import { normalizeBusinessEmail, validateOfficialEvidence, validateReviewConfirmation } from '@/modules/outreach/review-evidence.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -41,9 +41,8 @@ export async function POST(request: Request) {
   if (typeof recordId !== 'string' || !/^[A-Z0-9]+-[A-Z0-9-]+$/.test(recordId) || recordId.length > 200) {
     return Response.json({ error: 'INVALID_RECORD_ID' }, { status: 400 });
   }
-  if (input.exactEmailObserved !== true || input.businessIdentityConfirmed !== true || input.businessRelevanceConfirmed !== true) {
-    return Response.json({ error: 'REVIEW_CONFIRMATION_REQUIRED' }, { status: 400 });
-  }
+  try { validateReviewConfirmation(input); }
+  catch { return Response.json({ error: 'REVIEW_CONFIRMATION_REQUIRED' }, { status: 400 }); }
   let email: string;
   try { email = normalizeBusinessEmail(input.email); }
   catch { return Response.json({ error: 'INVALID_EMAIL' }, { status: 400 }); }
