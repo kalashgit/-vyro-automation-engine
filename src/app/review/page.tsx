@@ -23,7 +23,23 @@ export default function ContactReviewPage() {
     setSelected(old => prospects.some(p => p.record_id === old) ? old : (prospects[0]?.record_id || ''));
     setMessage(prospects.length ? 'Select a prospect and inspect the business website.' : 'No pending prospects in this page.');
   }
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    let active = true;
+    void fetch('/api/outreach/review', { cache: 'no-store' })
+      .then(async response => {
+        if (!response.ok) throw new Error('REVIEW_UNAVAILABLE');
+        return response.json();
+      })
+      .then(data => {
+        if (!active) return;
+        const prospects = (data.prospects || []) as Prospect[];
+        setItems(prospects);
+        setSelected(prospects[0]?.record_id || '');
+        setMessage(prospects.length ? 'Select a prospect and inspect the business website.' : 'No pending prospects in this page.');
+      })
+      .catch(() => { if (active) setMessage('Review access or database unavailable.'); });
+    return () => { active = false; };
+  }, []);
   const prospect = items.find(p => p.record_id === selected);
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,9 +57,9 @@ export default function ContactReviewPage() {
       });
       const data = await res.json();
       if (!res.ok) { setMessage('Review not saved: ' + (data.error || res.status)); return; }
-      setMessage('Evidence recorded. Suppression review queued; this does not send email.');
       setEmail(''); setEvidenceUrl(''); setChecked(false);
       await refresh();
+      setMessage('Evidence recorded. Suppression review queued; this does not send email.');
     } catch { setMessage('Review request failed. Check your connection.'); }
     finally { setBusy(false); }
   }
@@ -71,7 +87,7 @@ export default function ContactReviewPage() {
           style={{ width: '100%', boxSizing:'border-box',padding:12,marginBottom:16 }}/>
         <label style={{display:'block',marginBottom:16}}>
           <input type="checkbox" required checked={checked} onChange={e=>setChecked(e.target.checked)}/>
-          {' '}I personally confirmed this exact email on that official site, checked the company's identity, and confirmed relevance to VYRO.
+          {' '}I personally confirmed this exact email on that official site, checked the company&apos;s identity, and confirmed relevance to VYRO.
         </label>
         <button type="submit" disabled={busy || !checked || !prospect?.canonical_domain}
           style={{padding:'12px 22px',cursor:'pointer'}}>Record review (no sending)</button>
