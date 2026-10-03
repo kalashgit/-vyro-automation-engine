@@ -18,7 +18,7 @@ export async function GET(request: Request) {
               count(c.contact_id)::integer AS email_contacts
          FROM prospects p LEFT JOIN contact_points c
            ON c.record_id=p.record_id AND c.channel='email'
-        WHERE p.suppression_status='unchecked'\n        GROUP BY p.record_id ORDER BY p.created_at, p.record_id LIMIT 50`
+        WHERE p.suppression_status='unchecked' AND p.canonical_domain IS NOT NULL\n        GROUP BY p.record_id ORDER BY CASE WHEN p.country='GR' THEN 0 ELSE 1 END, p.created_at, p.record_id LIMIT 50`
     );
     return Response.json({ prospects: result.rows }, { headers: { 'Cache-Control': 'no-store' } });
   } catch {
