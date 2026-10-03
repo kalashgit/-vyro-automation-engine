@@ -52,6 +52,29 @@ describe("Acquisition identity and contact staging", {concurrency:false},()=>{
    assert.ok(rows.every(r=>r.source_url===source && r.verification_status==="unverified"));
    assert.equal((await fixture.pool.query("SELECT verification_status FROM prospects WHERE record_id=$1",[id])).rows[0].verification_status,"unverified");
  });
+ test("suppression job rejects incomplete manual review without passing",async()=>{
+   await assert.rejects(run("suppression_check"),/Queue job handler failed/);
+   const row=(await fixture.pool.query("SELECT suppression_status FROM prospects WHERE record_id=$1",[id])).rows[0];
+   assert.equal(row.suppression_status,"unchecked");
+ });
+ test("manually verified evidence is screened before any outbound preparation",async()=>{
+   await fixture.pool.query(
+     "UPDATE contact_points SET verification_status='verified',verification_method='human_checked_official_website',verified_at=now(),source_url='https://supplier.example/contact' WHERE record_id=$1 AND channel='email'",
+     [id]);
+   await fixture.pool.query(
+     "UPDATE prospects SET verification_status='verified',verification_evidence=$2::jsonb,verified_at=now(),relevance_status='relevant',contactability_status='contactable' WHERE record_id=$1",
+     [id,{method:"human_checked_official_website",evidence_url:"https://supplier.example/contact"}]);
+   await run("suppression_check");
+   const row=(await fixture.pool.query("SELECT suppression_status,suppression_checked_at FROM prospects WHERE record_id=$1",[id])).rows[0];
+   assert.equal(row.suppression_status,"passed");
+   assert.ok(row.suppression_checked_at);
+ });
+ test("suppressed email overrides prior pass, including after a repeated check",async()=>{
+   await fixture.pool.query("INSERT INTO email_suppressions(email_normalized) VALUES ('sales@supplier.example')");
+   await run("suppression_check");
+   const row=(await fixture.pool.query("SELECT suppression_status,suppression_reason FROM prospects WHERE record_id=$1",[id])).rows[0];
+   assert.deepEqual(row,{suppression_status:"suppressed",suppression_reason:"recipient_unsubscribed"});
+ });
  test("unknown IDs do not create records",async()=>{
    await assert.rejects(run("reconcile_identity","RES-UNKNOWN-R001"),/Queue job handler failed/);
    assert.equal((await fixture.pool.query("SELECT count(*)::int n FROM prospects")).rows[0].n,1);
