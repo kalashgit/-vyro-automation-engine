@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { evaluateRecipient, normalizeEmail } from "./recipient-gate.ts";
 
 /**
@@ -7,7 +7,7 @@ import { evaluateRecipient, normalizeEmail } from "./recipient-gate.ts";
  * This is a read-only preflight, NOT an authorization to send: repeat inside
  * the send reservation transaction after the approved provider is implemented.
  */
-export async function inspectRecipient(pool: Pool, recordId: string, email: string,
+export async function inspectRecipient(pool: Pool | PoolClient, recordId: string, email: string,
   now: Date = new Date()) {
   const normalized = normalizeEmail(email);
   if (!normalized || !/^[A-Z0-9]+-[A-Z0-9-]{1,199}$/.test(recordId)) {
