@@ -3,16 +3,28 @@ import { getDatabasePool } from '@/modules/database/client';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// Never reveal connection details or raw database errors to public callers.
+// Report only coarse failure categories, never raw database errors or credentials.
 export async function GET() {
+  if (!process.env.DATABASE_URL?.trim()) {
+    console.warn('VYRO_DB_HEALTH: missing_database_url');
+    return Response.json({ status: 'unavailable', check: 'configuration' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
+  let pool;
   try {
-    const pool = getDatabasePool();
+    pool = getDatabasePool();
+  } catch {
+    console.warn('VYRO_DB_HEALTH: invalid_database_configuration');
+    return Response.json({ status: 'unavailable', check: 'configuration' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+  }
+  try {
     const result = await pool.query("SELECT to_regclass('public.email_suppressions') IS NOT NULL AS ready");
     if (result.rows[0]?.ready === true) {
       return Response.json({ status: 'ok' }, { headers: { 'Cache-Control': 'no-store' } });
     }
+    console.warn('VYRO_DB_HEALTH: suppression_table_missing');
+    return Response.json({ status: 'unavailable', check: 'schema' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   } catch {
-    // Intentionally return only a generic status.
+    console.warn('VYRO_DB_HEALTH: connection_or_query_failed');
+    return Response.json({ status: 'unavailable', check: 'connection' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
   }
-  return Response.json({ status: 'unavailable' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
 }
