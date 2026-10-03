@@ -33,7 +33,7 @@ export function planNextStep(p: PipelineSnapshot, now = new Date()): PlannedWork
       !Number.isFinite(now.getTime())) throw new Error("Invalid pipeline snapshot");
   const decision = (stage: AcquisitionStage, jobType: JobType | null = null,
     review = false): PlannedWork => ({
-      stage, jobType, idempotencyKey: jobType ? `acquisition:${p.recordId}:${jobType}:v1` : null,
+      stage, jobType, idempotencyKey: jobType ? `acquisition:${p.recordId}:${jobType}:${jobType === "suppression_check" ? Math.floor(now.getTime()/86400000) : "v1"}` : null,
       requiresHumanReview: review
     });
   if (p.blocked || p.relevanceStatus === "irrelevant" || p.contactabilityStatus === "do_not_contact")
@@ -52,8 +52,6 @@ export function planNextStep(p: PipelineSnapshot, now = new Date()): PlannedWork
     p.suppressionCheckedAt.getTime() >= now.getTime() - 86400000;
   if (p.suppressionStatus === "suppressed") return decision("blocked");
   if (p.suppressionStatus !== "passed" || !suppressionFresh)
-    // The scheduler should attach a fresh epoch/cycle to this idempotency key
-    // when refreshing checks after their 24-hour expiry.
     return decision("suppression", "suppression_check");
   if (p.outreachStatus === "contacted") return decision("complete");
   if (p.outreachStatus === "none") return decision("outreach_preparation", "prepare_outreach");
