@@ -16,7 +16,7 @@ export async function POST(request: Request) {
   try {
     await withTransaction(getDatabasePool(), async (client) => {
       await client.query('INSERT INTO email_suppressions (email_normalized) VALUES ($1) ON CONFLICT DO NOTHING', [email]);
-      await client.query("UPDATE prospects SET suppression_status = 'blocked', suppression_reason = 'recipient_unsubscribed', suppression_checked_at = now(), updated_at = now() WHERE record_id IN (SELECT record_id FROM contact_points WHERE channel = 'email' AND lower(btrim(value)) = $1)", [email]);
+      await client.query("UPDATE prospects SET suppression_status = 'suppressed', suppression_reason = 'recipient_unsubscribed', suppression_checked_at = now(), updated_at = now() WHERE record_id IN (SELECT record_id FROM contact_points WHERE channel = 'email' AND lower(btrim(value)) = $1)", [email]);
     });
     return new Response('You have been unsubscribed from VYRO commercial emails.', { headers: { 'Cache-Control': 'no-store' } });
   } catch { return new Response('Service temporarily unavailable', { status: 503 }); }
