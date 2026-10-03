@@ -13,7 +13,7 @@ async function post(token) {
   return res.status;
 }
 async function main() {
-  if (process.env.PUBLIC_APP_ORIGIN !== origin) {
+  if (!process.env.PUBLIC_APP_ORIGIN || (() => { try { const u = new URL(process.env.PUBLIC_APP_ORIGIN); return u.protocol !== 'https:' || u.hostname !== new URL(origin).hostname || u.username || u.password || u.search || u.hash; } catch { return true; } })()) {
     report('configuration', 'ORIGIN_MISMATCH'); return;
   }
   if (typeof process.env.UNSUBSCRIBE_SECRET !== 'string' || process.env.UNSUBSCRIBE_SECRET.length < 32) {
