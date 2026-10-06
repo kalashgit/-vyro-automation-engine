@@ -27,6 +27,8 @@ try {
       AND ($1::text IS NOT NULL OR (
         p.canonical_domain IS NOT NULL
         AND NOT EXISTS(SELECT 1 FROM contact_points c WHERE c.record_id=p.record_id AND c.channel='email')
+        AND NOT EXISTS(SELECT 1 FROM import_rows r WHERE r.batch_id=p.source_batch_id AND r.raw_record_id=p.record_id
+          AND COALESCE(r.raw_payload->>'Email','') ~* '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,24}')
         AND NOT EXISTS(SELECT 1 FROM enrichment_runs r WHERE r.record_id=p.record_id AND r.completed_at>clock_timestamp()-interval '7 days')
         AND NOT EXISTS(SELECT 1 FROM jobs j WHERE j.type='enrich_contact' AND j.payload->>'recordId'=p.record_id AND j.status IN ('queued','leased','retry'))
       ))

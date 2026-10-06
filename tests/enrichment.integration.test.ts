@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { before,after,describe,test } from 'node:test';
 import { applyMigrations } from '../src/modules/database/migrate.ts';
 import { createQueue } from '../src/modules/queue/queue.ts';
@@ -91,6 +94,18 @@ describe('Official site enrichment to PostgreSQL', {concurrency:false},()=>{
     assert.equal((await fixture.pool.query('SELECT 1 FROM enrichment_candidates WHERE email_normalized=$1 AND cardinality(duplicate_record_ids)>0',[email])).rowCount,1);
     await finish(a);await finish(b);
   });
+  test('dedupe includes original ledger emails that have never reached contact staging',async()=>{
+    const s=await seed();
+    const other='B2B-UNSTAGED-'+randomUUID().replaceAll('-','').toUpperCase();
+    const {rows:[batch]}=await fixture.pool.query(`INSERT INTO import_batches(source_worker,source_batch,original_source_evidence,raw_discovered_count)
+      VALUES('B2B',$1,'{}',1) RETURNING batch_id`,[other]);
+    await fixture.pool.query(`INSERT INTO import_rows(batch_id,row_number,raw_record_id,raw_payload) VALUES($1,1,$2,$3)`,
+      [batch.batch_id,other,{Email:`Sales <INFO@${s.domain.toUpperCase()}>; other@business.gr`}]);
+    await createEnrichmentHandler(fixture.pool,async()=>[s.page])(s.job,{signal:signal()});
+    assert.deepEqual((await fixture.pool.query('SELECT duplicate_record_ids FROM enrichment_candidates WHERE record_id=$1',[s.recordId])).rows[0].duplicate_record_ids,[other]);
+    assert.equal((await fixture.pool.query('SELECT 1 FROM contact_points WHERE record_id=$1',[s.recordId])).rowCount,0);
+    await finish(s);
+  });
   test('expired or replaced leases cannot commit results',async()=>{
     const s=await seed();
     await fixture.pool.query("UPDATE jobs SET lease_token=gen_random_uuid() WHERE job_id=$1",[s.job.id]);
@@ -130,21 +145,30 @@ describe('Official site enrichment to PostgreSQL', {concurrency:false},()=>{
       {outcome:'needs_review',reason:'ROBOTS_DISALLOWED'});
     await finish(s);
   });
-  test('real worker claims official-site job, persists evidence, and completes queue job',async()=>{
+  test('CLI preview and idempotent apply feed a real worker through database completion',async()=>{
     const s=await seed(); await finish(s);
-    const queued=await s.q.enqueue({type:'enrich_contact',payload:{recordId:s.recordId,mode:'official_site'},idempotencyKey:randomUUID()});
+    const args=['--experimental-strip-types',fileURLToPath(new URL('../scripts/enrich-contacts.mjs',import.meta.url)),
+      '--campaign',randomUUID(),'--record-id',s.recordId];
+    const options={env:{...process.env,DATABASE_URL:process.env.TEST_DATABASE_URL,DATABASE_SSL_MODE:'disable',PGOPTIONS:'-c search_path='+fixture.schema},timeout:10_000};
+    const preview=JSON.parse((await promisify(execFile)(process.execPath,args,options)).stdout);
+    assert.equal(preview.mode,'preview');assert.equal(preview.created,0);assert.equal(preview.selected,1);
+    assert.equal((await fixture.pool.query("SELECT 1 FROM jobs WHERE payload->>'recordId'=$1 AND status='queued'",[s.recordId])).rowCount,0);
+    const first=JSON.parse((await promisify(execFile)(process.execPath,[...args,'--apply'],options)).stdout);
+    const replay=JSON.parse((await promisify(execFile)(process.execPath,[...args,'--apply'],options)).stdout);
+    assert.equal(first.created,1);assert.equal(replay.created,0);assert.equal(replay.replayed,1);
+    const {rows:[queued]}=await fixture.pool.query("SELECT job_id AS id FROM jobs WHERE payload->>'recordId'=$1 AND status='queued'",[s.recordId]);
     const controller=new AbortController();
     const running=runWorker(fixture.pool,{handlers:createAcquisitionHandlers(fixture.pool,{officialSiteEnabled:true,collector:async()=>[s.page]}),
       signal:controller.signal,pollIntervalMs:10,heartbeatIntervalMs:100,leaseDurationMs:1000});
     try {
       const deadline=Date.now()+5000;let state;
       while(Date.now()<deadline) {
-        state=(await fixture.pool.query('SELECT status FROM jobs WHERE job_id=$1',[queued.job.id])).rows[0].status;
+        state=(await fixture.pool.query('SELECT status FROM jobs WHERE job_id=$1',[queued.id])).rows[0].status;
         if(state==='succeeded'||state==='dead') break;
         await new Promise(resolve=>setTimeout(resolve,20));
       }
       assert.equal(state,'succeeded');
-      assert.equal((await fixture.pool.query('SELECT 1 FROM enrichment_runs WHERE job_id=$1',[queued.job.id])).rowCount,1);
+      assert.equal((await fixture.pool.query('SELECT 1 FROM enrichment_runs WHERE job_id=$1',[queued.id])).rowCount,1);
     } finally { controller.abort();await running; }
   });
 });

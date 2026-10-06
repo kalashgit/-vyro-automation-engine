@@ -48,7 +48,9 @@ Page fetching happens outside a database transaction. The commit transaction
 checks the current queue lease and prospect identity, then stores the run, pages,
 candidates and contacts atomically. A crash after commit replays without another
 fetch. A crash before commit leaves no partial result. Sorted email advisory
-locks serialize enrichment workers' cross-record collision checks; contacts
+locks serialize enrichment workers' cross-record collision checks. Duplicate
+checks cover staged contacts, enrichment candidates and original imported email
+fields (including multiple addresses and records not yet staged); contacts
 written by older ingestion paths are retained and flagged, never merged or
 deleted. Existing contact verification and provenance are never overwritten.
 

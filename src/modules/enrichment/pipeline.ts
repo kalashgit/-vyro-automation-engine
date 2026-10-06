@@ -102,6 +102,10 @@ export function createEnrichmentHandler(pool:Pool, collector:PageCollector=colle
           const {rows:duplicates}=await client.query(`SELECT record_id FROM contact_points
             WHERE channel='email' AND lower(btrim(value))=$1 AND record_id<>$2
             UNION SELECT record_id FROM enrichment_candidates WHERE email_normalized=$1 AND record_id<>$2
+            UNION SELECT COALESCE(r.raw_record_id,'import-row:'||r.import_row_id::text) AS record_id
+              FROM import_rows r CROSS JOIN LATERAL regexp_matches(COALESCE(r.raw_payload->>'Email',''),
+                '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,24}','g') AS found(email)
+              WHERE lower(found.email[1])=$1 AND r.raw_record_id IS DISTINCT FROM $2
             ORDER BY record_id`,[c.email,recordId]);
           const suppressed=Boolean((await client.query('SELECT 1 FROM email_suppressions WHERE email_normalized=$1',[c.email])).rowCount);
           await client.query(`INSERT INTO enrichment_candidates(run_id,record_id,page_id,email_normalized,
