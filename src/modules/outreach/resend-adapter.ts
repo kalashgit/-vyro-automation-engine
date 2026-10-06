@@ -10,7 +10,7 @@ export interface DeliveryRequest {
  reservationId:string; from:string; to:string; subject:string; text:string;
 }
 type Fetcher=typeof fetch;
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function deliverWithResend(
  request:DeliveryRequest,
  options:{apiKey:string;enabled:boolean;fetcher?:Fetcher}

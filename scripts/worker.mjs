@@ -18,7 +18,7 @@ if (process.env.WORKER_ENABLED !== "true") {
     const concurrency = parseWorkerConcurrency(process.env.WORKER_CONCURRENCY);
     pool = getDatabasePool();
     const handlers = process.env.ACQUISITION_HANDLERS_ENABLED === "true"
-      ? createAcquisitionHandlers(pool) : {};
+      ? createAcquisitionHandlers(pool, { officialSiteEnabled: process.env.ENRICHMENT_ENABLED === 'true' }) : {};
     const pollIntervalMs = concurrency > 1 ? 5_000 : 1_000;
     const loops = Array.from({ length: concurrency }, () =>
       runWorker(pool, { handlers, signal: controller.signal, pollIntervalMs })

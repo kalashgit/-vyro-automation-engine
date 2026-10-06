@@ -1,6 +1,8 @@
 import type { Pool } from "pg";
 import type { JobHandlers } from "./worker.ts";
 import { JobExecutionError } from "./worker.ts";
+import { createEnrichmentHandler } from '../enrichment/pipeline.ts';
+import type { PageCollector } from '../enrichment/official-site-fetcher.ts';
 
 const channels = [
  ["Email","email"],["Phone","phone"],["WhatsApp","whatsapp"],
@@ -18,7 +20,8 @@ function contactValue(value: unknown): string | null {
 }
 
 /** Local identity only: checks DB uniqueness, not external business authenticity. */
-export function createAcquisitionHandlers(pool: Pool): JobHandlers {
+export function createAcquisitionHandlers(pool: Pool, options: { officialSiteEnabled?: boolean; collector?: PageCollector } = {}): JobHandlers {
+ const enrichOfficialSite=createEnrichmentHandler(pool,options.collector);
  return {
    reconcile_identity: async (job, { signal })=>{
      const recordId=job.payload.recordId;
@@ -47,6 +50,11 @@ export function createAcquisitionHandlers(pool: Pool): JobHandlers {
      }catch(e){await client.query("ROLLBACK");throw e;}finally{client.release();}
    },
    enrich_contact: async (job,{signal})=>{
+     if(job.payload.mode==='official_site') {
+       if(!options.officialSiteEnabled) throw new JobExecutionError('ENRICHMENT_DISABLED',{retryable:false});
+       return enrichOfficialSite(job,{signal});
+     }
+     if(job.payload.mode!==undefined) throw new JobExecutionError('UNKNOWN_ENRICHMENT_MODE',{retryable:false});
      const recordId=job.payload.recordId;
      if(!validRecordId(recordId)) throw new JobExecutionError("INVALID_RECORD_ID",{retryable:false});
      if(signal.aborted) return;

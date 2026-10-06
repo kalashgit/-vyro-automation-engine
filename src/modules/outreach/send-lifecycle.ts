@@ -5,7 +5,7 @@ import {withTransaction} from "../database/client.ts";
  * Failed/unknown provider responses are NEVER automatically retried:
  * a provider may have accepted the message before the connection failed.
  */
-const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function claimSend(pool:Pool,reservationId:string) {
  if(!UUID.test(reservationId)) return false;
  return withTransaction(pool,async client=>{
