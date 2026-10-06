@@ -32,7 +32,13 @@ export function officialUrl(value: string, domain: string): URL {
 // IPv6-only sites are deliberately deferred rather than weakening address validation.
 async function read(url: URL, signal: AbortSignal): Promise<{status:number; location?:string; text:string}> {
   signal.throwIfAborted();
-  const addresses = await lookup(url.hostname, {all:true, family:4});
+  const addresses = await new Promise<{address:string;family:number}[]>((resolve,reject)=>{
+    const abort=()=>{signal.removeEventListener('abort',abort);reject(signal.reason);};
+    signal.addEventListener('abort',abort,{once:true});
+    lookup(url.hostname,{all:true,family:4}).then(resolve,reject)
+      .finally(()=>signal.removeEventListener('abort',abort));
+    if(signal.aborted) abort();
+  });
   signal.throwIfAborted();
   if (!addresses.length || addresses.some(item => !publicIPv4(item.address)))
     throw new JobExecutionError('NON_PUBLIC_SOURCE_ADDRESS',{retryable:false});
@@ -82,6 +88,18 @@ export function robotsAllows(text: string, url: URL): boolean {
   }
   return true;
 }
+export function robotsDelayMs(text:string):number {
+  let delay=1000;
+  for(const line of text.split(/\r?\n/)) {
+    const match=line.replace(/#.*/,'').match(/^\s*crawl-delay\s*:\s*(.*?)\s*$/i);
+    if(!match) continue;
+    const seconds=Number(match[1]);
+    if(!/^\d+(?:\.\d+)?$/.test(match[1])||!Number.isFinite(seconds)||seconds>10)
+      throw new JobExecutionError('ROBOTS_DELAY_REQUIRES_REVIEW',{retryable:false});
+    delay=Math.max(delay,Math.ceil(seconds*1000));
+  }
+  return delay;
+}
 async function fetchPage(url: URL, domain:string, signal:AbortSignal, robots?:string) {
   for(let i=0;i<4;i++) {
     if(robots!==undefined && !robotsAllows(robots,url)) throw new JobExecutionError('ROBOTS_DISALLOWED',{retryable:false});
@@ -101,7 +119,9 @@ export const collectOfficialPages: PageCollector = async (domain, parentSignal) 
   const robots=await fetchPage(new URL('/robots.txt',root),domain,signal);
   if(robots.status!==200 && robots.status!==404) throw new JobExecutionError('ROBOTS_UNAVAILABLE',{retryable:false});
   const policy=robots.status===200?robots.text:'';
-  await delay(1000,undefined,{signal});
+  if(/^\s*<(?:!doctype|html)/i.test(policy)) throw new JobExecutionError('ROBOTS_UNAVAILABLE',{retryable:false});
+  const spacing=robotsDelayMs(policy);
+  await delay(spacing,undefined,{signal});
   const home=await fetchPage(root,domain,signal,policy);
   if(home.status!==200) throw new JobExecutionError('SOURCE_NOT_ACCESSIBLE',{retryable:false});
   const pages:FetchedPage[]=[home];
@@ -114,7 +134,7 @@ export const collectOfficialPages: PageCollector = async (domain, parentSignal) 
   }
   for(const link of [...links].sort().slice(0,2)) {
     signal.throwIfAborted();
-    await delay(1000,undefined,{signal});
+    await delay(spacing,undefined,{signal});
     // At most three content pages per job; sequential requests, no unbounded crawl.
     const page=await fetchPage(new URL(link),domain,signal,policy);
     if(page.status===200 && !pages.some(p=>p.url===page.url)) pages.push(page);

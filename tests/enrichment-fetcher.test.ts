@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { officialUrl, publicIPv4, robotsAllows } from '../src/modules/enrichment/official-site-fetcher.ts';
+import { officialUrl, publicIPv4, robotsAllows, robotsDelayMs } from '../src/modules/enrichment/official-site-fetcher.ts';
 import { visibleText } from '../src/modules/enrichment/pipeline.ts';
 
 test('retrieval excludes private, metadata, multicast, reserved and IPv6 addresses',()=>{
@@ -23,4 +23,10 @@ test('robots disallow handles paths, wildcard, query and end anchors conservativ
 });
 test('visible evidence excludes scripts and decodes common public text entities',()=>{
   assert.equal(visibleText('<script>evil@shop.gr</script><style>hidden</style><p>A &amp; B info&#64;shop.gr</p>'),'A & B info@shop.gr');
+});
+test('crawl delay increases spacing and unsupported delays defer rather than ignoring policy',()=>{
+  assert.equal(robotsDelayMs('User-agent: *'),1000);
+  assert.equal(robotsDelayMs('Crawl-delay: 2.5'),2500);
+  assert.equal(robotsDelayMs('Crawl-delay: 0.1'),1000);
+  for(const value of ['60','bad','-1','']) assert.throws(()=>robotsDelayMs('Crawl-delay: '+value));
 });

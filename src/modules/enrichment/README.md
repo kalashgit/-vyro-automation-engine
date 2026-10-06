@@ -63,7 +63,9 @@ redirects remain on the exact normalized domain. It does not execute JavaScript,
 follow foreign domains, use credentials, visit arbitrary ports, or infer emails.
 Robots handling conservatively honors all Disallow rules and ignores Allow
 overrides. Unsupported content, IPv6-only sites and inaccessible robots files
-are deferred. Requests are sequential with one-second page spacing. Keep one
+are deferred. Requests are sequential with at least one-second page spacing;
+robots crawl delays up to ten seconds increase spacing, and longer or malformed
+delays defer the site. DNS waiting observes the collection cancellation deadline. Keep one
 collector worker; a shared cross-process request-rate budget is not implemented.
 
 ## Read back
