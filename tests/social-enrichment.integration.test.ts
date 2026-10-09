@@ -21,7 +21,7 @@ describe('Social account enrichment to PostgreSQL',{concurrency:false},()=>{
  async function rawRow(url:string,createProspect=true) {
   const key=randomUUID().replaceAll('-',''),recordId='CRE-'+key.toUpperCase();
   const {rows:[b]}=await f.pool.query(`INSERT INTO import_batches(source_worker,source_batch,original_source_evidence,raw_discovered_count) VALUES('CRE',$1,'{}',1) RETURNING batch_id`,[key]);
-  await f.pool.query(`INSERT INTO import_rows(batch_id,row_number,raw_record_id,raw_payload) VALUES($1,1,$2,$3)`,[b.batch_id,recordId,{Entity:'Creator '+key,'Website/Profile':url,'Source URL':url}]);
+  await f.pool.query(`INSERT INTO import_rows(batch_id,row_number,raw_record_id,raw_payload) VALUES($1,1,$2,$3)`,[b.batch_id,recordId,{Entity:'Creator '+key.replace(/\d/g,'a'),'Website/Profile':url,'Source URL':url}]);
   if(createProspect)await f.pool.query(`INSERT INTO prospects(record_id,source_batch_id,source_worker,original_source_evidence,normalized_company_name,country,identity_status,identity_certified_at) VALUES($1,$2,'CRE','{}',$3,'GR','certified',now())`,[recordId,b.batch_id,'creator '+key]);
   return {recordId,batchId:b.batch_id};
  }
