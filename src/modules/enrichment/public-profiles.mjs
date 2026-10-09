@@ -33,6 +33,7 @@ export function normalizeProfile(value) {
       // Custom Steam vanity URLs are preserved rather than assuming case-insensitivity.
       handle=parts[1];path='/'+parts[0]+'/'+handle+'/';platform='steam';
     } else return null;
+    if(!path||!platform||!handle)return null;
     return {url:'https://'+host+path,platform,handle};
   } catch {return null;}
 }

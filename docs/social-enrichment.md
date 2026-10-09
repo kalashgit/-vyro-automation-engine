@@ -1,7 +1,9 @@
 # Creator and consumer account enrichment
 
 `social_profiles` preserves explicit social account URLs from imported fields and
-optionally discovers account links on the prospect's recorded website. It supports
+optionally discovers account links on the prospect's recorded website. If no account
+route is present, optional Tavily search finds review candidates using the imported
+public name or handle. It supports
 Instagram, Facebook, YouTube, TikTok, Twitch, X/Twitter, Reddit, LinkedIn, Steam
 and Linktree. Account routes are review evidence, not proof of ownership or of an
 active account, open DMs, consent, or delivery. No messages are sent.
@@ -58,6 +60,36 @@ provenance, duplicate record IDs, needs-review notes and queue counts. Paginatio
 50 records. An imported URL keeps its original import timestamp; it is not reported
 as freshly verified. The JSON read endpoint is `/api/enrichment?offset=0`.
 
+## Optional public account search
+
+Set `ENRICHMENT_SEARCH_ENABLED=true`, `TAVILY_API_KEY`, and
+`ENRICHMENT_SEARCH_DAILY_LIMIT=100` on the worker. Search stays disabled by default.
+It runs only when imported and website account links are absent. Queries use the
+public name/handle, never email addresses or phone numbers. Each request asks for
+at most five results from supported platforms. Account URL structure plus an alias
+match filters candidates; provider scores never verify ownership. Only the result
+URL and title are retained, with relationship `search_candidate` and pending review.
+
+Budget reservations are shared by workers using the same database and reset by
+Europe/Athens calendar day. The allowed daily request cap is 1–1,000; this is a
+request count, not a currency guarantee or an account-wide limit on other apps.
+Completed identical queries are cached for seven days with their original timestamp.
+A timeout/crash after reservation keeps the request counted and does not automatically
+rebill the same job. Those records receive `SEARCH_OUTCOME_UNKNOWN` for explicit
+operator review before retrying. Failed requests may still consume provider credits.
+
+After configuring search or the daily budget resets, preview and apply a new campaign
+with `--retry-deferred` to select recent records deferred by missing search
+configuration, the daily cap or an in-progress identical query. It does not retry
+unknown provider outcomes automatically. Example:
+
+```sh
+node --experimental-strip-types scripts/enrich-contacts.mjs --mode social_profiles --campaign social-retry-20261010 --limit 4000 --retry-deferred
+```
+
+Inspect the preview before adding `--apply`. Keep the campaign stable when resuming
+an interrupted enqueue. The provider key is server-only and never stored in results.
+
 ## Reliability and remaining operational work
 
 Jobs commit evidence and run outcomes atomically, fenced by the current worker lease.
@@ -68,10 +100,10 @@ Older observations are snapshots: a later duplicate may appear on a later run ra
 than rewriting the earlier audit. Never use a `profiles_found` outcome alone as
 outreach eligibility.
 
-Records lacking explicit account links or an accessible recorded website receive
-`MANUAL_PROFILE_RESEARCH_REQUIRED`. Web-wide alias search and identity matching are
-not implemented in this version. The system does not guess account ownership from
-names, infer personal emails/phone numbers, or claim complete enrichment coverage.
+Records with no usable account evidence after the configured discovery steps receive
+`MANUAL_PROFILE_RESEARCH_REQUIRED` and specific search/collection notes. Candidate
+matching does not verify identity. The system does not infer personal email addresses
+or phone numbers, or claim complete enrichment coverage.
 
 Production migrations, database configuration, persistent-worker activation and a
 real-data batch still need to be performed on the operator's environment. Synthetic

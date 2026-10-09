@@ -3,6 +3,7 @@ import type { JobHandlers } from "./worker.ts";
 import { JobExecutionError } from "./worker.ts";
 import { createEnrichmentHandler } from '../enrichment/pipeline.ts';
 import { createSocialEnrichmentHandler } from '../enrichment/social-pipeline.ts';
+import type { ProfileSearch } from '../enrichment/profile-search.ts';
 import type { PageCollector } from '../enrichment/official-site-fetcher.ts';
 
 const channels = [
@@ -21,8 +22,8 @@ function contactValue(value: unknown): string | null {
 }
 
 /** Local identity only: checks DB uniqueness, not external business authenticity. */
-export function createAcquisitionHandlers(pool: Pool, options: { officialSiteEnabled?: boolean; socialEnabled?: boolean; collector?: PageCollector } = {}): JobHandlers {
- const enrichSocial=createSocialEnrichmentHandler(pool,options.officialSiteEnabled?options.collector:undefined,Boolean(options.officialSiteEnabled));
+export function createAcquisitionHandlers(pool: Pool, options: { officialSiteEnabled?: boolean; socialEnabled?: boolean; profileSearch?: ProfileSearch; searchDailyLimit?: number; collector?: PageCollector } = {}): JobHandlers {
+ const enrichSocial=createSocialEnrichmentHandler(pool,options.officialSiteEnabled?options.collector:undefined,Boolean(options.officialSiteEnabled),options.profileSearch,options.searchDailyLimit);
  const enrichOfficialSite=createEnrichmentHandler(pool,options.collector);
  return {
    reconcile_identity: async (job, { signal })=>{

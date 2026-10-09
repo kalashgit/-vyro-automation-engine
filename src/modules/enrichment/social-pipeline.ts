@@ -4,11 +4,13 @@ import { JobExecutionError } from '../workers/worker.ts';
 import type { JobHandler } from '../workers/worker.ts';
 import { collectOfficialPages, officialUrl } from './official-site-fetcher.ts';
 import type { PageCollector } from './official-site-fetcher.ts';
-import { profilesFromRecord, profilesFromPage, isSocialHost } from './public-profiles.mjs';
+import { profileSearchQuery, matchesPublicAlias, searchProfilesWithinBudget } from './profile-search.ts';
+import type { ProfileSearch } from './profile-search.ts';
+import { normalizeProfile, profilesFromRecord, profilesFromPage, isSocialHost } from './public-profiles.mjs';
 
-type Observation={url:string;platform:string;handle:string;source:string;relationship:'supplied_profile'|'website_link';details:string;observedAt:Date};
+type Observation={url:string;platform:string;handle:string;source:string;relationship:'supplied_profile'|'website_link'|'search_candidate';details:string;observedAt:Date};
 /** Preserve account routes without inferring ownership, deliverability, or permission to send. */
-export function createSocialEnrichmentHandler(pool:Pool,collector:PageCollector=collectOfficialPages,collectWebsites=false):JobHandler {
+export function createSocialEnrichmentHandler(pool:Pool,collector:PageCollector=collectOfficialPages,collectWebsites=false,search?:ProfileSearch,searchDailyLimit=100):JobHandler {
  return async(job,{signal})=>{
   const recordId=job.payload.recordId;
   if(typeof recordId!=='string'||!/^[A-Z0-9]+-[A-Z0-9-]{1,199}$/.test(recordId)) throw new JobExecutionError('INVALID_RECORD_ID',{retryable:false});
@@ -42,7 +44,21 @@ export function createSocialEnrichmentHandler(pool:Pool,collector:PageCollector=
       notes.push(error.code);
     }
   } else notes.push(collectWebsites?'OFFICIAL_DOMAIN_MISSING':'WEBSITE_COLLECTION_DISABLED');
-  if(!observations.length) notes.push('MANUAL_PROFILE_RESEARCH_REQUIRED');
+  if(!observations.length) {
+    const query=profileSearchQuery(p.raw_payload??{});
+    if(!search)notes.push('SEARCH_NOT_CONFIGURED');
+    else if(!query)notes.push('PUBLIC_ALIAS_MISSING');
+    else {
+      const result=await searchProfilesWithinBudget(pool,job,query,search,signal,searchDailyLimit);
+      if(result.note)notes.push(result.note);
+      for(const r of result.results) {
+        const profile=normalizeProfile(r.url);
+        if(profile&&matchesPublicAlias(p.raw_payload??{},r))observations.push({...profile,source:r.url,relationship:'search_candidate',
+          details:'Search candidate; ownership unverified. Title: '+r.title,observedAt:result.observedAt});
+      }
+    }
+    if(!observations.length)notes.push('MANUAL_PROFILE_RESEARCH_REQUIRED');
+  }
   signal.throwIfAborted();
   await withTransaction(pool,async client=>{
     const {rows:[lease]}=await client.query(`SELECT 1 FROM jobs WHERE job_id=$1 AND status='leased' AND leased_by=$2

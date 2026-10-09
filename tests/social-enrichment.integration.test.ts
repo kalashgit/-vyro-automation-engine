@@ -8,6 +8,7 @@ import {createQueue} from '../src/modules/queue/queue.ts';
 import {createSocialEnrichmentHandler} from '../src/modules/enrichment/social-pipeline.ts';
 import {createAcquisitionHandlers} from '../src/modules/workers/acquisition-handlers.ts';
 import {backfillProfileIndex,recoverDeferredProfiles} from '../src/modules/enrichment/profile-index.ts';
+import {searchProfilesWithinBudget} from '../src/modules/enrichment/profile-search.ts';
 import {getEnrichmentResults} from '../src/modules/enrichment/results.ts';
 import {createDatabaseFixture} from './helpers/database.ts';
 import type {DatabaseFixture} from './helpers/database.ts';
@@ -88,7 +89,48 @@ describe('Social account enrichment to PostgreSQL',{concurrency:false},()=>{
   assert.equal(p.identity_status,'unchecked');assert.equal(p.country,null);assert.ok(p.canonical_profile_url.startsWith('https://twitch.tv/'));
   assert.equal((await recoverDeferredProfiles(f.pool)).recovered,0);
  });
- test('4,000 synthetic profile-only prospects can be indexed, previewed, and enqueued idempotently',{timeout:120000},async()=>{
+ test('search returns review-only candidates with an exact alias match, never inferred contacts',async()=>{
+  const s=await seed('https://example.org/article');
+  const {rows:[r]}=await f.pool.query('SELECT raw_payload FROM import_rows WHERE raw_record_id=$1',[s.recordId]);
+  let calls=0;
+  const search=async()=>{calls++;return [{url:'https://instagram.com/candidate',title:r.raw_payload.Entity+' | Instagram'},{url:'https://twitch.tv/unrelated',title:'Someone Else'}];};
+  await createSocialEnrichmentHandler(f.pool,undefined,false,search)(s.job,{signal:signal()});
+  await createSocialEnrichmentHandler(f.pool,undefined,false,search)(s.job,{signal:signal()});
+  assert.equal(calls,1);
+  const {rows:[e]}=await f.pool.query('SELECT * FROM social_profile_evidence WHERE record_id=$1',[s.recordId]);
+  assert.equal(e.relationship,'search_candidate');assert.equal(e.review_status,'pending');
+  assert.equal((await f.pool.query('SELECT 1 FROM contact_points WHERE record_id=$1',[s.recordId])).rowCount,0);await finish(s);
+ });
+ test('atomic daily budget, shared cache and ambiguous-request replay prevent duplicate provider charges',async()=>{
+  const a=await seed(),b=await seed();let calls=0;
+  const search=async()=>{calls++;return [{url:'https://twitch.tv/cache_fixture',title:'Cache Fixture'}];};
+  const {rows:[usage]}=await f.pool.query('SELECT count(*)::int AS n FROM enrichment_search_requests');
+  const outcomes=await Promise.all([
+   searchProfilesWithinBudget(f.pool,a.job,'query a',search,signal(),usage.n+1),
+   searchProfilesWithinBudget(f.pool,b.job,'query b',search,signal(),usage.n+1),
+  ]);
+  assert.equal(calls,1);assert.equal(outcomes.filter(o=>o.note==='SEARCH_DAILY_LIMIT').length,1);
+  const winner=outcomes[0].note?b:a,loser=winner===a?b:a,query=winner===a?'query a':'query b';
+  const cached=await searchProfilesWithinBudget(f.pool,loser.job,query,search,signal(),usage.n+1);
+  assert.equal(calls,1);assert.equal(cached.results.length,1);
+  const original=outcomes.find(o=>!o.note)!;assert.equal(cached.observedAt.getTime(),original.observedAt.getTime());
+  await finish(a);await finish(b);
+  const c=await seed();let failures=0;
+  const fail=async()=>{failures++;throw new Error('Simulated provider timeout');};
+  for(let i=0;i<2;i++)assert.equal((await searchProfilesWithinBudget(f.pool,c.job,'unknown result',fail,signal(),100)).note,'SEARCH_OUTCOME_UNKNOWN');
+  assert.equal(failures,1);await finish(c);
+ });
+ test('retry selector reopens configuration-deferred runs only when explicitly requested',async()=>{
+  const s=await seed('https://example.org/article');
+  await f.pool.query("UPDATE prospects SET category='RETRY' WHERE record_id=$1",[s.recordId]);
+  await createSocialEnrichmentHandler(f.pool)(s.job,{signal:signal()});await finish(s);
+  for(const [retry,expected] of [[false,0],[true,1]] as const){
+   const {stdout}=await promisify(execFile)(process.execPath,['--experimental-strip-types','scripts/enrich-contacts.mjs','--mode','social_profiles','--category','RETRY','--campaign','retry-preview',...(retry?['--retry-deferred']:[])],{
+    env:{...process.env,DATABASE_URL:process.env.TEST_DATABASE_URL,DATABASE_SSL_MODE:'disable',PGOPTIONS:'-c search_path='+f.schema},timeout:15000});
+   assert.equal(JSON.parse(stdout).selected,expected);
+  }
+ });
+ test('4,000 synthetic profile-only prospects can be indexed, previewed, and enqueued idempotently',{timeout:240000},async()=>{
   const {rows:[b]}=await f.pool.query(`INSERT INTO import_batches(source_worker,source_batch,original_source_evidence,raw_discovered_count) VALUES('B2C','scale-fixture','{}',4000) RETURNING batch_id`);
   await f.pool.query(`INSERT INTO import_rows(batch_id,row_number,raw_record_id,raw_payload)
     SELECT $1,n,'B2C-SCALE-'||n,jsonb_build_object('Website/Profile','https://twitch.tv/scale_'||n) FROM generate_series(1,4000)n`,[b.batch_id]);
@@ -103,5 +145,13 @@ describe('Social account enrichment to PostgreSQL',{concurrency:false},()=>{
   const applied=await run(true);assert.equal(applied.created,4000);
   const again=await run(true);assert.equal(again.created,0);
   assert.equal((await f.pool.query("SELECT count(*)::int AS n FROM jobs WHERE payload->>'mode'='social_profiles' AND status='queued'")).rows[0].n,4000);
+  const q=createQueue(f.pool),handler=createSocialEnrichmentHandler(f.pool);let completed=0;
+  for(;;){
+   const job=await q.claim('scale-worker',{types:['enrich_contact'],leaseDurationMs:60000});if(!job)break;
+   await handler(job,{signal:signal()});
+   await q.complete({jobId:job.id,workerId:job.leasedBy,leaseToken:job.leaseToken});completed++;
+  }
+  assert.equal(completed,4000);
+  assert.equal((await f.pool.query("SELECT count(*)::int AS n FROM social_profile_evidence WHERE record_id LIKE 'B2C-SCALE-%'")).rows[0].n,4000);
  });
 });
