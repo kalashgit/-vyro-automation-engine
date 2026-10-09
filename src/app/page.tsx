@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getHealth } from "@/lib/health";
 import { getControlPlaneSnapshot } from "@/modules/monitoring/status";
 
@@ -16,6 +17,7 @@ export default async function Dashboard() {
       <header className="page-header">
         <div className="identity"><span className="wordmark">VYRO</span><span className="phase">PHASE 2 · PERSISTENCE MILESTONE</span></div>
         <h1>VYRO Automation Engine</h1>
+        <Link href="/enrichment">Review enrichment results</Link>
         <p className="intro">Automation control plane for VYRO operations. This application is separate from the VYRO customer storefront.</p>
       </header>
       <section className="panel engine-status" aria-labelledby="engine-heading">

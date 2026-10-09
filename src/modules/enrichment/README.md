@@ -85,3 +85,10 @@ Tests in `enrichment.integration.test.ts` use a disposable local PostgreSQL
 database and deterministic page fixtures: queue dispatch, replay, collisions,
 suppression, no-result outcomes, failure rollback, cancellation, lease fencing,
 and the boundary between enrichment and approval. CI runs PostgreSQL 16.
+
+## Consumer and creator accounts
+
+The `social_profiles` mode adds normalized account identities, original-ledger
+backfill, optional website account-link extraction, evidence review and batches
+up to 5,000 records. See [social-enrichment.md](../../../docs/social-enrichment.md)
+for commands, recovery and operational limits.

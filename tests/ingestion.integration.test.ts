@@ -56,10 +56,23 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
    const {rows:[count]}=await fixture.pool.query("SELECT count(*)::int AS n FROM import_batches");
    assert.equal(count.n,3);
  });
- test("social-only countryless records retain raw audit without fabricating prospect identity",async()=>{
+ test("social-only countryless records use the supplied account identity",async()=>{
    const batch="B2B-20261002-B004";
    const result=imported(await importVerifiedLedger(fixture.pool,ledger(line(batch+"-R001",batch,"Public Seller","https://instagram.com/example","")),{filename:"social.csv"}));
-   assert.equal(result.deferred,1);assert.equal(result.rawRows,1);assert.equal(result.prospects,0);
+   assert.equal(result.deferred,0);assert.equal(result.rawRows,1);assert.equal(result.prospects,1);
+   const {rows:[p]}=await fixture.pool.query("SELECT canonical_profile_url,country FROM prospects WHERE record_id=$1",[batch+"-R001"]);
+   assert.equal(p.canonical_profile_url,"https://instagram.com/example/");assert.equal(p.country,null);
+ });
+ test("same display name on distinct accounts stays separate; repeated account becomes a conflict",async()=>{
+   const batch="B2B-20261002-B005";
+   const result=imported(await importVerifiedLedger(fixture.pool,ledger(
+     line(batch+"-R001",batch,"Same Name","https://twitch.tv/firstcreator"),
+     line(batch+"-R002",batch,"Same Name","https://twitch.tv/secondcreator"),
+     line(batch+"-R003",batch,"Different Name","https://www.twitch.tv/FirstCreator?ref=test")
+   )));
+   assert.equal(result.prospects,2);assert.equal(result.conflicts,1);
+   const {rows:[c]}=await fixture.pool.query("SELECT conflict_kind FROM identity_conflicts WHERE existing_record_id=$1",[batch+"-R001"]);
+   assert.equal(c.conflict_kind,"profile_collision");
  });
  test("identity mapper never treats social media as a company domain",()=>{
    const identity=identityOf({rawPayload:{"Entity":"Public Seller","Country":"","Location":"", "Website/Profile":"https://instagram.com/example"}});
