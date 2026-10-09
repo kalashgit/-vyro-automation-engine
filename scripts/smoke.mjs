@@ -109,7 +109,7 @@ const credentials = { username: "smoke-admin", password: randomBytes(24).toStrin
 const authorization = "Basic " + Buffer.from(credentials.username + ":" + credentials.password).toString("base64");
 const configured = await launch(credentials);
 try {
-  for (const path of ["/", "/api/readiness", "/api/future-admin-endpoint"]) {
+  for (const path of ["/", "/enrichment", "/api/enrichment", "/api/readiness", "/api/future-admin-endpoint"]) {
     const response = await configured.request(path);
     assert.equal(response.status, 401, "Admin routes must require authentication.");
     assert.match(response.headers.get("www-authenticate") ?? "", /Basic/i);
@@ -134,6 +134,14 @@ try {
   }
   const heartbeat = html.match(/<time[^>]*datetime="([^"]+)"/i)?.[1];
   assert.ok(heartbeat && Math.abs(Date.now() - Date.parse(heartbeat)) < 30000);
+  const enrichmentPage = await configured.request("/enrichment", authorization);
+  assert.equal(enrichmentPage.status, 200);
+  assert.match(await enrichmentPage.text(), /Enrichment results/);
+  const enrichment = await configured.request("/api/enrichment", authorization);
+  assert.equal(enrichment.status, 503);
+  assert.equal((await enrichment.json()).error, "ENRICHMENT_DATABASE_UNAVAILABLE");
+  const invalidOffset = await configured.request("/api/enrichment?offset=-1", authorization);
+  assert.equal(invalidOffset.status,400); await invalidOffset.arrayBuffer();
   const readiness = await configured.request("/api/readiness", authorization);
   assert.equal(readiness.status, 503);
   assert.match(readiness.headers.get("cache-control") ?? "", /no-store/i);

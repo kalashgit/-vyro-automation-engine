@@ -1,6 +1,10 @@
 import type { Pool } from "pg";
 import type { JobHandlers } from "./worker.ts";
 import { JobExecutionError } from "./worker.ts";
+import { createEnrichmentHandler } from '../enrichment/pipeline.ts';
+import { createSocialEnrichmentHandler } from '../enrichment/social-pipeline.ts';
+import type { ProfileSearch } from '../enrichment/profile-search.ts';
+import type { PageCollector } from '../enrichment/official-site-fetcher.ts';
 
 const channels = [
  ["Email","email"],["Phone","phone"],["WhatsApp","whatsapp"],
@@ -18,7 +22,9 @@ function contactValue(value: unknown): string | null {
 }
 
 /** Local identity only: checks DB uniqueness, not external business authenticity. */
-export function createAcquisitionHandlers(pool: Pool): JobHandlers {
+export function createAcquisitionHandlers(pool: Pool, options: { officialSiteEnabled?: boolean; socialEnabled?: boolean; profileSearch?: ProfileSearch; searchDailyLimit?: number; collector?: PageCollector } = {}): JobHandlers {
+ const enrichSocial=createSocialEnrichmentHandler(pool,options.officialSiteEnabled?options.collector:undefined,Boolean(options.officialSiteEnabled),options.profileSearch,options.searchDailyLimit);
+ const enrichOfficialSite=createEnrichmentHandler(pool,options.collector);
  return {
    reconcile_identity: async (job, { signal })=>{
      const recordId=job.payload.recordId;
@@ -28,13 +34,13 @@ export function createAcquisitionHandlers(pool: Pool): JobHandlers {
      try {
        await client.query("BEGIN");
        const {rows:[p]}=await client.query(
-         "SELECT record_id,canonical_domain,normalized_company_name,country,region,identity_status FROM prospects WHERE record_id=$1 FOR UPDATE",[recordId]);
+         "SELECT record_id,canonical_domain,canonical_profile_url,normalized_company_name,country,region,identity_status FROM prospects WHERE record_id=$1 FOR UPDATE",[recordId]);
        if(!p) throw new JobExecutionError("UNKNOWN_RECORD_ID",{retryable:false});
        if(signal.aborted) {await client.query("ROLLBACK");return;}
        if(p.identity_status!=="unchecked"){await client.query("COMMIT");return;}
        const {rows:[result]}=await client.query(
-         "SELECT count(*)::integer AS n FROM prospects WHERE record_id<>$1 AND ( ($2::text IS NOT NULL AND canonical_domain=$2) OR ($3::text IS NOT NULL AND $4::text IS NOT NULL AND normalized_company_name=$3 AND country=$4 AND COALESCE(region,'')=COALESCE($5::text,'')) )",
-         [recordId,p.canonical_domain,p.normalized_company_name,p.country,p.region]);
+         "SELECT count(*)::integer AS n FROM prospects WHERE record_id<>$1 AND ( ($2::text IS NOT NULL AND canonical_domain=$2) OR ($6::text IS NOT NULL AND canonical_profile_url=$6) OR ($6::text IS NULL AND canonical_profile_url IS NULL AND $3::text IS NOT NULL AND $4::text IS NOT NULL AND normalized_company_name=$3 AND country=$4 AND COALESCE(region,'')=COALESCE($5::text,'')) )",
+         [recordId,p.canonical_domain,p.normalized_company_name,p.country,p.region,p.canonical_profile_url]);
        const {rows:[existingConflict]}=await client.query(
          "SELECT EXISTS(SELECT 1 FROM identity_conflicts WHERE existing_record_id=$1 AND review_status='pending') AS pending",[recordId]);
        if(result.n>0||existingConflict.pending){
@@ -47,6 +53,15 @@ export function createAcquisitionHandlers(pool: Pool): JobHandlers {
      }catch(e){await client.query("ROLLBACK");throw e;}finally{client.release();}
    },
    enrich_contact: async (job,{signal})=>{
+     if(job.payload.mode==='social_profiles') {
+       if(!options.socialEnabled) throw new JobExecutionError('SOCIAL_ENRICHMENT_DISABLED',{retryable:false});
+       return enrichSocial(job,{signal});
+     }
+     if(job.payload.mode==='official_site') {
+       if(!options.officialSiteEnabled) throw new JobExecutionError('ENRICHMENT_DISABLED',{retryable:false});
+       return enrichOfficialSite(job,{signal});
+     }
+     if(job.payload.mode!==undefined) throw new JobExecutionError('UNKNOWN_ENRICHMENT_MODE',{retryable:false});
      const recordId=job.payload.recordId;
      if(!validRecordId(recordId)) throw new JobExecutionError("INVALID_RECORD_ID",{retryable:false});
      if(signal.aborted) return;

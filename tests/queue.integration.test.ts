@@ -15,7 +15,7 @@ describe("PostgreSQL durable queue", { concurrency: false }, () => {
   let queue: ReturnType<typeof createQueue>;
   before(async () => { fixture = await createDatabaseFixture(); await applyMigrations(fixture.pool); queue = createQueue(fixture.pool); });
   after(async () => { if (fixture) await fixture.dispose(); });
-  beforeEach(async () => { await fixture.pool.query("TRUNCATE jobs"); });
+  beforeEach(async () => { await fixture.pool.query("DELETE FROM jobs"); });
   async function ready(jobId: string) {
     await fixture.pool.query("UPDATE jobs SET available_at = clock_timestamp() - interval '1 second' WHERE job_id = $1", [jobId]);
   }
