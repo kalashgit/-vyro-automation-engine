@@ -55,10 +55,16 @@ use `--record-id ...` and a new campaign label. A partial enqueue can be resumed
 the same command. Suppressed/irrelevant prospects and pending identity conflicts
 are excluded.
 
-Visit `/enrichment` using the existing admin authentication. Results show profiles,
-provenance, duplicate record IDs, needs-review notes and queue counts. Pagination is
-50 records. An imported URL keeps its original import timestamp; it is not reported
-as freshly verified. The JSON read endpoint is `/api/enrichment?offset=0`.
+Visit `/enrichment` using the existing admin authentication. The screen can preview
+and explicitly queue a social-profile batch by campaign, category and size; default
+size is 4,000 and the maximum is 5,000. Preview does not create jobs. Queueing creates
+only durable enrichment jobs; it does not approve contacts or send messages. The
+worker must be running and social enrichment enabled before jobs will complete.
+Results show profiles, provenance, duplicate record IDs, needs-review notes and queue
+counts. Pagination is 50 records. An imported URL keeps its original import timestamp;
+it is not reported as freshly verified. The JSON read endpoint is
+`/api/enrichment?offset=0`; batch controls use the authenticated
+`/api/enrichment/batch` endpoint.
 
 ## Optional public account search
 

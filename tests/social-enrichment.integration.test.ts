@@ -10,6 +10,7 @@ import {createAcquisitionHandlers} from '../src/modules/workers/acquisition-hand
 import {backfillProfileIndex,recoverDeferredProfiles} from '../src/modules/enrichment/profile-index.ts';
 import {searchProfilesWithinBudget} from '../src/modules/enrichment/profile-search.ts';
 import {getEnrichmentResults} from '../src/modules/enrichment/results.ts';
+import {previewEnrichmentBatch,queueEnrichmentBatch,validateEnrichmentBatchInput} from '../src/modules/enrichment/batch.ts';
 import {createDatabaseFixture} from './helpers/database.ts';
 import type {DatabaseFixture} from './helpers/database.ts';
 
@@ -129,6 +130,20 @@ describe('Social account enrichment to PostgreSQL',{concurrency:false},()=>{
     env:{...process.env,DATABASE_URL:process.env.TEST_DATABASE_URL,DATABASE_SSL_MODE:'disable',PGOPTIONS:'-c search_path='+f.schema},timeout:15000});
    assert.equal(JSON.parse(stdout).selected,expected);
   }
+ });
+ test('screen batch preview is read-only and queueing is explicit, atomic and idempotent',async()=>{
+  const s=await seed();await f.pool.query("UPDATE prospects SET category='BATCH' WHERE record_id=$1",[s.recordId]);await finish(s);
+  const input=validateEnrichmentBatchInput({mode:'social_profiles',campaign:'screen-batch',category:'BATCH',limit:20});
+  const preview=await previewEnrichmentBatch(f.pool,input);
+  assert.equal(preview.selected,1);assert.deepEqual(preview.sample,[s.recordId]);
+  assert.equal((await f.pool.query("SELECT 1 FROM jobs WHERE idempotency_key LIKE 'social-enrichment:v1:screen-batch:%'")).rowCount,0);
+  const queued=await queueEnrichmentBatch(f.pool,input);
+  assert.deepEqual({selected:queued.selected,created:queued.created,replayed:queued.replayed},{selected:1,created:1,replayed:0});
+  const {rows:[job]}=await f.pool.query("SELECT job_id FROM jobs WHERE idempotency_key LIKE 'social-enrichment:v1:screen-batch:%'");
+  await f.pool.query("UPDATE jobs SET status='dead',attempts=1,finished_at=clock_timestamp() WHERE job_id=$1",[job.job_id]);
+  const replay=await queueEnrichmentBatch(f.pool,input);
+  assert.deepEqual({selected:replay.selected,created:replay.created,replayed:replay.replayed},{selected:1,created:0,replayed:1});
+  assert.throws(()=>validateEnrichmentBatchInput({mode:'social_profiles',campaign:'bad label',limit:20}),/Campaign/);
  });
  test('4,000 synthetic profile-only prospects can be indexed, previewed, and enqueued idempotently',{timeout:240000},async()=>{
   const {rows:[b]}=await f.pool.query(`INSERT INTO import_batches(source_worker,source_batch,original_source_evidence,raw_discovered_count) VALUES('B2C','scale-fixture','{}',4000) RETURNING batch_id`);
