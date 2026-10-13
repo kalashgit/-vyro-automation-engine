@@ -24,7 +24,9 @@ readiness have not been verified.
 
 - `/api/health`: public HTTP liveness; preserves the Phase 1 JSON contract.
 - `/`: authenticated control-plane dashboard, always **NOT OPERATIONAL** in this milestone.
-- `/ingestion`: preview and explicitly import a supervisor-verified worker CSV ledger.
+- `/ingestion`: preview and explicitly import a supervisor-verified CSV or a complete,
+  strictly deduped 100-row VYRO V5.1 B2B worker batch. Worker claims are retained as
+  claims only; imported prospects still begin unchecked.
 - `/enrichment`: preview and queue social-profile batches (up to 5,000) or
   official-site/email batches (up to 100); view evidence for both modes.
 - `/api/readiness`: authenticated database readiness and separate worker/watchdog
@@ -51,7 +53,12 @@ Missing or invalid admin configuration fails closed with HTTP 503. Wrong or abse
 credentials return HTTP 401. The liveness endpoint remains public without any settings.
 Basic authentication requires HTTPS outside local development; Vercel provides HTTPS.
 
-The `/ingestion` screen validates the complete CSV before any write. Set
+The `/ingestion` screen validates the complete CSV before any write. It accepts a
+supervisor ledger with exact `Supervisor Status=VERIFIED NEW`, or one complete
+100-row VYRO V5.1 B2B batch with the exact worker status and passed local/global
+dedupe fields. The latter is recorded as `worker_claim_only`, never as supervisor
+certification; both types enter the same unchecked identity-reconciliation flow.
+Set
 `VYRO_LEDGER_IMPORT_ENABLED=true` only when PostgreSQL is configured and ready to
 accept imports. A committed ledger import adds an immutable audit and prospect rows,
 then queues local identity checks in the same transaction. It never starts enrichment

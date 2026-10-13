@@ -96,7 +96,7 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
    const {rows:[evidence]}=await fixture.pool.query("SELECT original_source_evidence FROM import_batches WHERE source_batch LIKE $1 ORDER BY created_at DESC LIMIT 1",[batch+"#%"]);
    assert.equal(evidence.original_source_evidence.mode,"worker_v51");
    assert.equal(evidence.original_source_evidence.certification,"worker_claim_only");
-   const {rows:[state]}=await fixture.pool.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE p.verification_status='unverified' AND p.identity_status='unchecked')::int AS unchecked FROM prospects p JOIN import_batches b USING(source_batch_id) WHERE b.source_batch LIKE $1",[batch+"#%"]);
+   const {rows:[state]}=await fixture.pool.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE p.verification_status='unverified' AND p.identity_status='unchecked')::int AS unchecked FROM prospects p JOIN import_batches b ON p.source_batch_id=b.batch_id WHERE b.source_batch LIKE $1",[batch+"#%"]);
    assert.deepEqual([state.n,state.unchecked],[100,100]);
  });
 });
