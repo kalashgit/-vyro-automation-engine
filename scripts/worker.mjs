@@ -1,6 +1,7 @@
 import { getDatabasePool } from "../src/modules/database/client.ts";
 import { runWorker } from "../src/modules/workers/worker.ts";
 import { createAcquisitionHandlers } from "../src/modules/workers/acquisition-handlers.ts";
+import { createTavilyProfileSearch } from "../src/modules/enrichment/profile-search.ts";
 import { parseWorkerConcurrency } from "../src/modules/workers/fleet-config.mjs";
 
 if (process.env.WORKER_ENABLED !== "true") {
@@ -17,8 +18,11 @@ if (process.env.WORKER_ENABLED !== "true") {
     // claim distinct leased jobs; no new sender or outbound job is registered.
     const concurrency = parseWorkerConcurrency(process.env.WORKER_CONCURRENCY);
     pool = getDatabasePool();
+    const searchDailyLimit=Number(process.env.ENRICHMENT_SEARCH_DAILY_LIMIT??100);
+    if(!Number.isSafeInteger(searchDailyLimit)||searchDailyLimit<1||searchDailyLimit>1000)throw new Error('Invalid search request limit.');
+    const profileSearch=process.env.ENRICHMENT_SEARCH_ENABLED==='true'?createTavilyProfileSearch(process.env.TAVILY_API_KEY):undefined;
     const handlers = process.env.ACQUISITION_HANDLERS_ENABLED === "true"
-      ? createAcquisitionHandlers(pool) : {};
+      ? createAcquisitionHandlers(pool, { profileSearch, searchDailyLimit, socialEnabled: process.env.SOCIAL_ENRICHMENT_ENABLED === 'true', officialSiteEnabled: process.env.ENRICHMENT_ENABLED === 'true' }) : {};
     const pollIntervalMs = concurrency > 1 ? 5_000 : 1_000;
     const loops = Array.from({ length: concurrency }, () =>
       runWorker(pool, { handlers, signal: controller.signal, pollIntervalMs })

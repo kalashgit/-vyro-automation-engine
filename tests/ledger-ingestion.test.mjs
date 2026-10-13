@@ -51,3 +51,36 @@ test("accepts legacy supervisor category labels without rewriting the original l
   assert.equal(result.accepted[0].rawPayload["Worker Category"],label);
  }
 });
+test("accepts only a complete VYRO V5.1 B2B worker-claim batch and labels the claim",()=>{
+ const columns=["Record ID","Batch ID","Worker Category","Entity","Source URL","Source Platform","Local Dedupe","Global Dedupe","Sync Status","Country","Location"];
+ const batch="B2B-20261006-B001";
+ const rows=Array.from({length:100},(_,i)=>[
+  `${batch}-R${String(i+1).padStart(3,"0")}`,batch,"B2B",`Example Shop ${i+1}`,`https://shop${i+1}.example.gr/contact`,
+  "XO / official site / public business evidence","PASSED — 100 unique identities; no duplicate phones",
+  "PASSED — no exact/fuzzy collision found against available VYRO B2B + Supervisor Verified + Master Quick-Dedupe universe",
+  "VERIFIED NEW — READY FOR LIBRARY PERSISTENCE — MASTER_SYNC_PENDING","Greece","Athens"
+ ].join(","));
+ const csv=columns.join(",")+"\n"+rows.join("\n")+"\n";
+ const result=validateLedger(csv,{requireSupervisorVerified:true,allowWorkerV51:true});
+ assert.equal(result.total,100);
+ assert.equal(result.accepted.length,100);
+ assert.equal(result.rejected.length,0);
+ assert.equal(result.certification,"worker_v51_claim_only");
+ assert.equal(result.accepted[0].certification,"worker_v51_claim_only");
+});
+test("rejects partial or changed-status worker batches rather than importing a subset",()=>{
+ const columns=["Record ID","Batch ID","Worker Category","Entity","Source URL","Source Platform","Local Dedupe","Global Dedupe","Sync Status"];
+ const batch="B2B-20261006-B001";
+ const row=i=>[`${batch}-R${String(i).padStart(3,"0")}`,batch,"B2B",`Example Shop ${i}`,`https://shop${i}.example.gr/contact`,
+  "official site / public business evidence","PASSED — 100 unique identities; no duplicate phones",
+  "PASSED — no exact/fuzzy collision found against available VYRO B2B + Supervisor Verified + Master Quick-Dedupe universe",
+  "VERIFIED NEW — READY FOR LIBRARY PERSISTENCE — MASTER_SYNC_PENDING"].join(",");
+ const partial=validateLedger(columns.join(",")+"\n"+Array.from({length:99},(_,i)=>row(i+1)).join("\n"),{requireSupervisorVerified:true,allowWorkerV51:true});
+ assert.equal(partial.accepted.length,0);
+ assert.ok(partial.rejected.some(x=>x.reason==="worker_v51_requires_one_complete_100_row_batch"));
+ const rows=Array.from({length:100},(_,i)=>row(i+1));
+ rows[99]=rows[99].replace("VERIFIED NEW — READY FOR LIBRARY PERSISTENCE — MASTER_SYNC_PENDING","MASTER_SYNC_PENDING");
+ const changed=validateLedger(columns.join(",")+"\n"+rows.join("\n"),{requireSupervisorVerified:true,allowWorkerV51:true});
+ assert.equal(changed.accepted.length,0);
+ assert.equal(changed.rejected.length,100);
+});

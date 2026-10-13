@@ -18,7 +18,7 @@ describe("independent queue worker and watchdog", { concurrency: false }, () => 
   });
   after(async () => { if (fixture) await fixture.dispose(); });
   beforeEach(async () => {
-    await fixture.pool.query("TRUNCATE jobs, worker_processes");
+    await fixture.pool.query("DELETE FROM jobs; TRUNCATE worker_processes");
   });
 
   async function until(check: () => Promise<boolean>): Promise<void> {

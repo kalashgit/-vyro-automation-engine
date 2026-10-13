@@ -1,15 +1,16 @@
 // Transactional, operator-triggered intake. NO automatic outreach or queue dispatch.
+import { createHash } from 'node:crypto';
+import { profilesFromRecord, isSocialHost, indexImportedProfiles } from "../enrichment/public-profiles.mjs";
 import { validateLedger } from "./ledger.mjs";
 
 const countryCodes = new Map([["greece","GR"],["ελλάδα","GR"],["hellas","GR"],["gr","GR"],["germany","DE"],["de","DE"],["italy","IT"],["it","IT"],["poland","PL"],["pl","PL"],["cyprus","CY"],["cy","CY"],["austria","AT"],["at","AT"],["france","FR"],["fr","FR"],["spain","ES"],["es","ES"],["united kingdom","GB"],["uk","GB"],["gb","GB"]]);
-const socialHosts = new Set(["instagram.com","facebook.com","linkedin.com","tiktok.com","youtube.com","x.com","twitter.com","wa.me","maps.google.com"]);
 function cleanName(value) { const name=value?.normalize("NFKC").trim().toLowerCase().replace(/\s+/g," "); return name && name.length<=300? name:null; }
 function domain(value) {
   if (!value || !/^https?:\/\//i.test(value)) return null;
   try {
     const u=new URL(value), hostname=u.hostname.toLowerCase().replace(/^www\./,"");
     if(!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(hostname)
-      ||hostname.length>253||socialHosts.has(hostname)) return null;
+      ||hostname.length>253||isSocialHost(hostname)) return null;
     return hostname;
   } catch { return null; }
 }
@@ -18,19 +19,20 @@ export function identityOf(row) {
   const country=countryCodes.get((raw.Country||"").trim().toLowerCase()) || null;
   const name=cleanName(raw.Entity);
   const region=cleanName(raw.Location)?.slice(0,200) ?? null;
-  const site=domain(raw["Website/Profile"]||"");
-  return {canonicalDomain:site,normalizedCompanyName:name,country,region};
+  const officialSiteEvidence=(raw["Source Platform"]||"").toLowerCase().includes("official site");
+  const site=domain(raw["Website/Profile"]||(officialSiteEvidence?raw["Source URL"]:""));
+  return {canonicalProfileUrl:site?null:(profilesFromRecord(raw)[0]?.url??null),canonicalDomain:site,normalizedCompanyName:name,country,region};
 }
 function sameSource(a,b) { return a?.csvSha256===b?.csvSha256 && a?.sourceBatch===b?.sourceBatch; }
 
 /** All rows must validate before opening a transaction. No implicit "VERIFIED" database promotion. */
 export async function importVerifiedLedger(pool,csv,options={}) {
-  const report=validateLedger(csv,{filename:options.filename,requireSupervisorVerified:true});
+  const report=validateLedger(csv,{filename:options.filename,requireSupervisorVerified:true,allowWorkerV51:true});
   if(report.rejected.length) return {status:"rejected",total:report.total,errors:report.rejected};
   if(report.accepted.length===0) throw new Error("No eligible ledger rows.");
   if(report.total>1000) throw new Error("Ledger exceeds the 1,000-row intake limit.");
   const client=await pool.connect();let inTransaction=false;
-  const totals={status:"imported",total:report.total,batches:0,rawRows:0,prospects:0,conflicts:0,deferred:0,replayed:0};
+  const totals={status:"imported",certification:report.certification,total:report.total,batches:0,rawRows:0,prospects:0,conflicts:0,deferred:0,replayed:0,reconciliationJobs:0};
   try {
     await client.query("BEGIN");inTransaction=true;
     // Serialize imports across processes; prevents two replays racing on the same batch key.
@@ -42,7 +44,10 @@ export async function importVerifiedLedger(pool,csv,options={}) {
       if(auditBatch.length>200) throw new Error("Source batch ID exceeds the audit key limit.");
       const records=report.accepted.filter(r=>r.sourceWorker===worker && r.sourceBatch===batch);
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",[sourceKey]);
-      const evidence={csvSha256:report.sha256,sourceBatch:batch,auditBatch,filename:options.filename||"",mode:"supervisor_verified",certification:"source_claim_only"};
+      const certification=records[0]?.certification||report.certification||"supervisor_source_claim";
+      const evidence={csvSha256:report.sha256,sourceBatch:batch,auditBatch,filename:options.filename||"",
+        mode:certification==="worker_v51_claim_only"?"worker_v51":"supervisor_verified",
+        certification:certification==="worker_v51_claim_only"?"worker_claim_only":"source_claim_only"};
       const existing=await client.query("SELECT batch_id,original_source_evidence,raw_discovered_count FROM import_batches WHERE source_worker=$1 AND source_batch=$2",[worker,auditBatch]);
       if(existing.rows.length){
         const prev=existing.rows[0];
@@ -61,31 +66,39 @@ export async function importVerifiedLedger(pool,csv,options={}) {
           "INSERT INTO import_rows(batch_id,row_number,raw_record_id,raw_payload) VALUES($1,$2,$3,$4::jsonb) RETURNING import_row_id",
           [batchId,index+1,record.recordId,JSON.stringify(record.rawPayload)]);
         totals.rawRows++;
+        await indexImportedProfiles(client,audit.import_row_id,record.recordId,record.rawPayload);
         const ident=identityOf(record);
-        if(!ident.canonicalDomain && !(ident.normalizedCompanyName && ident.country)) {totals.deferred++;continue;}
+        if(!ident.canonicalDomain && !ident.canonicalProfileUrl && !(ident.normalizedCompanyName && ident.country)) {totals.deferred++;continue;}
         // Review collisions rather than deleting a source row or reassigning an existing ID.
         const found=await client.query(
-          "SELECT record_id,canonical_domain,normalized_company_name,country,region FROM prospects WHERE record_id=$1 OR ($2::text IS NOT NULL AND canonical_domain=$2) OR ($3::text IS NOT NULL AND $4::text IS NOT NULL AND normalized_company_name=$3 AND country=$4 AND COALESCE(region,'')=COALESCE($5::text,'')) ORDER BY CASE WHEN record_id=$1 THEN 0 WHEN canonical_domain=$2 THEN 1 ELSE 2 END LIMIT 1",
-          [record.recordId,ident.canonicalDomain,ident.normalizedCompanyName,ident.country,ident.region]);
+          "SELECT record_id,canonical_domain,canonical_profile_url,normalized_company_name,country,region FROM prospects WHERE record_id=$1 OR ($2::text IS NOT NULL AND canonical_domain=$2) OR ($6::text IS NOT NULL AND canonical_profile_url=$6) OR ($6::text IS NULL AND canonical_profile_url IS NULL AND $3::text IS NOT NULL AND $4::text IS NOT NULL AND normalized_company_name=$3 AND country=$4 AND COALESCE(region,'')=COALESCE($5::text,'')) ORDER BY CASE WHEN record_id=$1 THEN 0 WHEN canonical_domain=$2 THEN 1 ELSE 2 END LIMIT 1",
+          [record.recordId,ident.canonicalDomain,ident.normalizedCompanyName,ident.country,ident.region,ident.canonicalProfileUrl]);
         if(found.rows.length){
           const other=found.rows[0];
-          const kind=other.record_id===record.recordId?"duplicate_record_id":other.canonical_domain && other.canonical_domain===ident.canonicalDomain?"domain_collision":"compound_identity_collision";
+          const kind=other.record_id===record.recordId?"duplicate_record_id":other.canonical_domain && other.canonical_domain===ident.canonicalDomain?"domain_collision":other.canonical_profile_url && other.canonical_profile_url===ident.canonicalProfileUrl?"profile_collision":"compound_identity_collision";
           await client.query("INSERT INTO identity_conflicts(import_row_id,existing_record_id,conflict_kind,evidence) VALUES($1,$2,$3,$4::jsonb)",
             [audit.import_row_id,other.record_id,kind,JSON.stringify({incomingRecordId:record.recordId,sourceBatch:batch,sourceWorker:worker})]);
           totals.conflicts++;continue;
         }
         // Unique indexes remain final safety net under concurrent imports from different source batches.
         const saved=await client.query(
-          "INSERT INTO prospects(record_id,source_batch_id,source_worker,original_source_evidence,canonical_domain,normalized_company_name,country,region,category) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING RETURNING record_id",
-          [record.recordId,batchId,worker,JSON.stringify(record.originalSourceEvidence),ident.canonicalDomain,ident.normalizedCompanyName,ident.country,ident.region,worker]);
-        if(saved.rows.length) totals.prospects++;
+          "INSERT INTO prospects(record_id,source_batch_id,source_worker,original_source_evidence,canonical_domain,normalized_company_name,country,region,category,canonical_profile_url) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING RETURNING record_id",
+          [record.recordId,batchId,worker,JSON.stringify(record.originalSourceEvidence),ident.canonicalDomain,ident.normalizedCompanyName,ident.country,ident.region,worker,ident.canonicalProfileUrl]);
+        if(saved.rows.length) {
+          totals.prospects++;
+          const key=createHash("sha256").update(record.recordId).digest("hex");
+          const job=await client.query(`INSERT INTO jobs(type,payload,idempotency_key)
+            VALUES('reconcile_identity',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING`,
+            [{recordId:record.recordId},"reconcile-ledger:v1:"+key]);
+          if(job.rowCount) totals.reconciliationJobs++;
+        }
         else {
           const winner=await client.query(
-            "SELECT record_id,canonical_domain FROM prospects WHERE record_id=$1 OR ($2::text IS NOT NULL AND canonical_domain=$2) OR ($3::text IS NOT NULL AND $4::text IS NOT NULL AND normalized_company_name=$3 AND country=$4 AND COALESCE(region,'')=COALESCE($5::text,'')) LIMIT 1",
-            [record.recordId,ident.canonicalDomain,ident.normalizedCompanyName,ident.country,ident.region]);
+            "SELECT record_id,canonical_domain,canonical_profile_url FROM prospects WHERE record_id=$1 OR ($2::text IS NOT NULL AND canonical_domain=$2) OR ($6::text IS NOT NULL AND canonical_profile_url=$6) OR ($6::text IS NULL AND canonical_profile_url IS NULL AND $3::text IS NOT NULL AND $4::text IS NOT NULL AND normalized_company_name=$3 AND country=$4 AND COALESCE(region,'')=COALESCE($5::text,'')) LIMIT 1",
+            [record.recordId,ident.canonicalDomain,ident.normalizedCompanyName,ident.country,ident.region,ident.canonicalProfileUrl]);
           if(!winner.rows.length) throw new Error("Identity conflict without surviving prospect.");
           const other=winner.rows[0];
-          const kind=other.record_id===record.recordId?"duplicate_record_id":other.canonical_domain===ident.canonicalDomain?"domain_collision":"compound_identity_collision";
+          const kind=other.record_id===record.recordId?"duplicate_record_id":other.canonical_domain && other.canonical_domain===ident.canonicalDomain?"domain_collision":other.canonical_profile_url && other.canonical_profile_url===ident.canonicalProfileUrl?"profile_collision":"compound_identity_collision";
           await client.query("INSERT INTO identity_conflicts(import_row_id,existing_record_id,conflict_kind,evidence) VALUES($1,$2,$3,$4::jsonb)",
             [audit.import_row_id,other.record_id,kind,JSON.stringify({incomingRecordId:record.recordId,sourceBatch:batch,sourceWorker:worker})]);
           totals.conflicts++;
