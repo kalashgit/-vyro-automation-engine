@@ -22,9 +22,11 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
  test("preserves original IDs and immutable raw evidence; replay is idempotent",async()=>{
    const csv=ledger(a,b);
    const first=imported(await importVerifiedLedger(fixture.pool,csv,{filename:"sample.csv"}));
-   assert.deepEqual([first.rawRows,first.prospects,first.conflicts,first.replayed],[2,2,0,0]);
+   assert.deepEqual([first.rawRows,first.prospects,first.conflicts,first.replayed,first.reconciliationJobs],[2,2,0,0,2]);
    const repeated=imported(await importVerifiedLedger(fixture.pool,csv,{filename:"sample.csv"}));
-   assert.equal(repeated.replayed,2);assert.equal(repeated.prospects,0);
+   assert.equal(repeated.replayed,2);assert.equal(repeated.prospects,0);assert.equal(repeated.reconciliationJobs,0);
+   const jobs=await fixture.pool.query("SELECT type,payload->>'recordId' AS record_id FROM jobs WHERE type='reconcile_identity' ORDER BY record_id");
+   assert.deepEqual(jobs.rows.map(row=>row.record_id),[b1+"-R001",b1+"-R002"]);
    const {rows:[count]}=await fixture.pool.query(
      "SELECT (SELECT count(*)::int FROM import_batches) batches,(SELECT count(*)::int FROM import_rows) rows,(SELECT count(*)::int FROM prospects) prospects");
    assert.deepEqual([count.batches,count.rows,count.prospects],[1,2,2]);
@@ -44,7 +46,7 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
  test("new batch with same canonical domain is audited for manual review",async()=>{
    const id=b2+"-R001";
    const result=imported(await importVerifiedLedger(fixture.pool,ledger(line(id,b2,"Different Trade Name","https://first-shop.example")),{filename:"another.csv"}));
-   assert.equal(result.conflicts,1);assert.equal(result.prospects,0);assert.equal(result.rawRows,1);
+   assert.equal(result.conflicts,1);assert.equal(result.prospects,0);assert.equal(result.rawRows,1);assert.equal(result.reconciliationJobs,0);
    const {rows:[conflict]}=await fixture.pool.query("SELECT conflict_kind,existing_record_id FROM identity_conflicts ORDER BY created_at DESC LIMIT 1");
    assert.equal(conflict.conflict_kind,"domain_collision");
    assert.equal(conflict.existing_record_id,b1+"-R001");

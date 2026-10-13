@@ -151,6 +151,8 @@ footer {
 .queue-counts dd { margin: 0; font-size: 1.2rem; font-weight: 700; }
 
 .enrichment-launch { margin-bottom: 16px; }
+.ledger-upload { display: grid; gap: 8px; margin: 20px 0; color: var(--muted); font-size: 0.9rem; font-weight: 700; }
+.ledger-upload input { width: 100%; color: var(--text); font: inherit; }
 .batch-fields { display: grid; grid-template-columns: 2fr 1.5fr 1fr 1fr; gap: 16px; margin: 24px 0 16px; }
 .batch-fields label { display: grid; gap: 7px; color: var(--muted); font-size: 0.85rem; font-weight: 700; }
 .batch-fields input, .batch-fields select {

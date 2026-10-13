@@ -5,24 +5,28 @@ Next.js 16, TypeScript, App Router, and the existing Phase 1 liveness endpoint r
 
 ## Current status: Phase 2, Milestone 2
 
-The engine is **NOT OPERATIONAL**. This milestone adds PostgreSQL storage,
-versioned migrations, a durable queue, atomic claims, fenced leases, heartbeats,
-bounded retries, expired-lease recovery, and automated PostgreSQL tests.
+The engine is **NOT OPERATIONAL** until a production database is provisioned and
+migrated and the independent worker is configured and running. The repository now
+includes protected worker-ledger intake, identity reconciliation, social-profile
+and official-site enrichment, and an authenticated batch dashboard. It does not
+send outreach messages.
 
 The dashboard is protected by single-operator HTTP Basic authentication. It shows
 real queue counts only when a migrated database is configured and reachable.
 Missing database settings show **NOT CONFIGURED**; connection/schema errors show
-**UNAVAILABLE**. Workers and Watchdog remain **NOT CONFIGURED**.
+**UNAVAILABLE**. Worker and Watchdog remain separately hosted processes.
 
-Milestone 2 adds independent worker/watchdog process loops, lease renewal,
-durable process heartbeats, bounded lease recovery, graceful shutdown, and tests.
-The production worker handler registry remains empty: no jobs are dispatched,
-and there is no outreach or provider integration. No ingestion adapter,
-enrichment/reconciliation implementation, certification metrics, or manual
-job-run UI is implemented. Issue #2 remains open for later milestones.
+The worker can reconcile imported prospect identities and run explicitly enabled
+social-profile and official-site enrichment handlers. Public identity/account
+observations remain review evidence; they do not certify outreach eligibility or
+verify email delivery. Continuous processing, live-data volume, and production
+readiness have not been verified.
 
 - `/api/health`: public HTTP liveness; preserves the Phase 1 JSON contract.
 - `/`: authenticated control-plane dashboard, always **NOT OPERATIONAL** in this milestone.
+- `/ingestion`: preview and explicitly import a supervisor-verified worker CSV ledger.
+- `/enrichment`: preview and queue social-profile batches (up to 5,000) or
+  official-site/email batches (up to 100); view evidence for both modes.
 - `/api/readiness`: authenticated database readiness and separate worker/watchdog
   process liveness. It remains 503 because the engine and handlers are not operational.
 - Last heartbeat remains the timestamp of this HTTP response, explicitly separate
@@ -46,6 +50,20 @@ Set `ADMIN_USERNAME` and a unique `ADMIN_PASSWORD` of at least 16 characters in
 Missing or invalid admin configuration fails closed with HTTP 503. Wrong or absent
 credentials return HTTP 401. The liveness endpoint remains public without any settings.
 Basic authentication requires HTTPS outside local development; Vercel provides HTTPS.
+
+The `/ingestion` screen validates the complete CSV before any write. Set
+`VYRO_LEDGER_IMPORT_ENABLED=true` only when PostgreSQL is configured and ready to
+accept imports. A committed ledger import adds an immutable audit and prospect rows,
+then queues local identity checks in the same transaction. It never starts enrichment
+or outreach automatically.
+
+To process enrichment jobs, run the independent worker with
+`WORKER_ENABLED=true ACQUISITION_HANDLERS_ENABLED=true` and enable the relevant
+mode with `SOCIAL_ENRICHMENT_ENABLED=true` or `ENRICHMENT_ENABLED=true`. Social
+search additionally requires `ENRICHMENT_SEARCH_ENABLED=true` and a server-side
+`TAVILY_API_KEY`; the default shared search budget is 100 requests per Athens day.
+Keep official-site collection at one worker initially because public-site requests
+are deliberately paced.
 
 ## PostgreSQL and migrations
 
@@ -109,6 +127,10 @@ audit, lint, TypeScript, database/queue/auth tests, build, and HTTP smoke checks
 | `DATABASE_URL` | PostgreSQL connection string |
 | `DATABASE_SSL_MODE` | `verify-full` (default), or local-only `disable` |
 | `DATABASE_SSL_CA` | Optional trusted CA PEM |
+| `VYRO_LEDGER_IMPORT_ENABLED` | Explicitly enables protected dashboard imports; default is false |
+| `WORKER_ENABLED`, `ACQUISITION_HANDLERS_ENABLED` | Explicitly enables worker loops and registered intake/enrichment handlers |
+| `SOCIAL_ENRICHMENT_ENABLED`, `ENRICHMENT_ENABLED` | Enables each enrichment mode on the worker |
+| `ENRICHMENT_SEARCH_ENABLED`, `TAVILY_API_KEY` | Optional public-alias search configuration |
 | `TEST_DATABASE_URL` | Local disposable test database ending in `_test` |
 | `API_BASE_URL`, `API_KEY` | Reserved future integrations; unused |
 
@@ -128,8 +150,7 @@ PostgreSQL and applying migrations.
 
 The independent processes can be invoked explicitly with `WORKER_ENABLED=true npm
 run worker` and `WATCHDOG_ENABLED=true npm run watchdog`; both require migration
-`0002_worker_processes.sql`. The worker currently has no registered job handlers,
-so it will not claim jobs. Do not set these opt-in flags in Vercel. Persistent
+`0002_worker_processes.sql`. Do not set these opt-in flags in Vercel. Persistent
 worker/watchdog host configuration and deployment are intentionally out of
 scope without approval. No continuous worker runs inside a Vercel request handler.
 A successful Vercel web deployment does not mean the automation engine is operating.

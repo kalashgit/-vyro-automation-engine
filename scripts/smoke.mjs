@@ -27,7 +27,7 @@ async function launch(auth) {
         ...process.env,
         NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1",
         // HTTP fixtures never connect to a developer's or production database.
-        DATABASE_URL: "", ADMIN_USERNAME: auth?.username ?? "", ADMIN_PASSWORD: auth?.password ?? "",
+        DATABASE_URL: "", VYRO_LEDGER_IMPORT_ENABLED: "", ADMIN_USERNAME: auth?.username ?? "", ADMIN_PASSWORD: auth?.password ?? "",
       },
     });
   let logs = "";
@@ -40,9 +40,10 @@ async function launch(auth) {
     server.once("error", (error) => { startError = error; ended = true; resolve(); });
     server.once("exit", () => { ended = true; resolve(); });
   });
-  const request = (path, authorization) => fetch(`${base}${path}`, {
+  const request = (path, authorization, init = {}) => fetch(`${base}${path}`, {
     cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5000),
-    headers: authorization ? { Authorization: authorization } : {},
+    ...init,
+    headers: { ...(authorization ? { Authorization: authorization } : {}), ...init.headers },
   });
   async function stop() {
     if (!server.pid) return;
@@ -109,7 +110,7 @@ const credentials = { username: "smoke-admin", password: randomBytes(24).toStrin
 const authorization = "Basic " + Buffer.from(credentials.username + ":" + credentials.password).toString("base64");
 const configured = await launch(credentials);
 try {
-  for (const path of ["/", "/enrichment", "/api/enrichment", "/api/readiness", "/api/future-admin-endpoint"]) {
+  for (const path of ["/", "/enrichment", "/ingestion", "/api/enrichment", "/api/readiness", "/api/future-admin-endpoint"]) {
     const response = await configured.request(path);
     assert.equal(response.status, 401, "Admin routes must require authentication.");
     assert.match(response.headers.get("www-authenticate") ?? "", /Basic/i);
@@ -137,6 +138,19 @@ try {
   const enrichmentPage = await configured.request("/enrichment", authorization);
   assert.equal(enrichmentPage.status, 200);
   assert.match(await enrichmentPage.text(), /Enrichment results/);
+  const ingestionPage = await configured.request("/ingestion", authorization);
+  assert.equal(ingestionPage.status, 200);
+  assert.match(await ingestionPage.text(), /Import worker ledger/);
+  const csv = "Record ID,Batch ID,Worker Category,Entity,Source URL,Supervisor Status\nB2B-20261013-B001-R001,B2B-20261013-B001,B2B,Example Shop,https://example.org/source,VERIFIED NEW\n";
+  const previewForm = new FormData(); previewForm.set("action", "preview"); previewForm.set("file", new File([csv], "fixture.csv", { type: "text/csv" }));
+  const preview = await configured.request("/api/ingestion/ledger", authorization, { method: "POST", body: previewForm });
+  assert.equal(preview.status, 200);
+  assert.deepEqual((({ total, accepted, rejected, writes }) => ({ total, accepted, rejected, writes }))(await preview.json()),
+    { total: 1, accepted: 1, rejected: 0, writes: 0 });
+  const importForm = new FormData(); importForm.set("action", "import"); importForm.set("file", new File([csv], "fixture.csv", { type: "text/csv" }));
+  const importDisabled = await configured.request("/api/ingestion/ledger", authorization, { method: "POST", body: importForm });
+  assert.equal(importDisabled.status, 503);
+  assert.equal((await importDisabled.json()).error, "LEDGER_IMPORT_DISABLED");
   const enrichment = await configured.request("/api/enrichment", authorization);
   assert.equal(enrichment.status, 503);
   assert.equal((await enrichment.json()).error, "ENRICHMENT_DATABASE_UNAVAILABLE");

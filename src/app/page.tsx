@@ -18,6 +18,7 @@ export default async function Dashboard() {
         <div className="identity"><span className="wordmark">VYRO</span><span className="phase">PHASE 2 · PERSISTENCE MILESTONE</span></div>
         <h1>VYRO Automation Engine</h1>
         <Link href="/enrichment">Open enrichment engine</Link>
+        <Link href="/ingestion">Import worker ledger</Link>
         <p className="intro">Automation control plane for VYRO operations. This application is separate from the VYRO customer storefront.</p>
       </header>
       <section className="panel engine-status" aria-labelledby="engine-heading">

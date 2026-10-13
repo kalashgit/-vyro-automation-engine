@@ -1,4 +1,5 @@
 // Transactional, operator-triggered intake. NO automatic outreach or queue dispatch.
+import { createHash } from 'node:crypto';
 import { profilesFromRecord, isSocialHost, indexImportedProfiles } from "../enrichment/public-profiles.mjs";
 import { validateLedger } from "./ledger.mjs";
 
@@ -30,7 +31,7 @@ export async function importVerifiedLedger(pool,csv,options={}) {
   if(report.accepted.length===0) throw new Error("No eligible ledger rows.");
   if(report.total>1000) throw new Error("Ledger exceeds the 1,000-row intake limit.");
   const client=await pool.connect();let inTransaction=false;
-  const totals={status:"imported",total:report.total,batches:0,rawRows:0,prospects:0,conflicts:0,deferred:0,replayed:0};
+  const totals={status:"imported",total:report.total,batches:0,rawRows:0,prospects:0,conflicts:0,deferred:0,replayed:0,reconciliationJobs:0};
   try {
     await client.query("BEGIN");inTransaction=true;
     // Serialize imports across processes; prevents two replays racing on the same batch key.
@@ -79,7 +80,14 @@ export async function importVerifiedLedger(pool,csv,options={}) {
         const saved=await client.query(
           "INSERT INTO prospects(record_id,source_batch_id,source_worker,original_source_evidence,canonical_domain,normalized_company_name,country,region,category,canonical_profile_url) VALUES($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING RETURNING record_id",
           [record.recordId,batchId,worker,JSON.stringify(record.originalSourceEvidence),ident.canonicalDomain,ident.normalizedCompanyName,ident.country,ident.region,worker,ident.canonicalProfileUrl]);
-        if(saved.rows.length) totals.prospects++;
+        if(saved.rows.length) {
+          totals.prospects++;
+          const key=createHash("sha256").update(record.recordId).digest("hex");
+          const job=await client.query(`INSERT INTO jobs(type,payload,idempotency_key)
+            VALUES('reconcile_identity',$1,$2) ON CONFLICT(idempotency_key) DO NOTHING`,
+            [{recordId:record.recordId},"reconcile-ledger:v1:"+key]);
+          if(job.rowCount) totals.reconciliationJobs++;
+        }
         else {
           const winner=await client.query(
             "SELECT record_id,canonical_domain,canonical_profile_url FROM prospects WHERE record_id=$1 OR ($2::text IS NOT NULL AND canonical_domain=$2) OR ($6::text IS NOT NULL AND canonical_profile_url=$6) OR ($6::text IS NULL AND canonical_profile_url IS NULL AND $3::text IS NOT NULL AND $4::text IS NOT NULL AND normalized_company_name=$3 AND country=$4 AND COALESCE(region,'')=COALESCE($5::text,'')) LIMIT 1",
