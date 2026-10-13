@@ -161,6 +161,8 @@ footer {
   outline: 3px solid var(--green); outline-offset: 3px;
 }
 .batch-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.batch-retry { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0; color: var(--muted); font-size: 0.9rem; }
+.batch-retry input { margin-top: 3px; accent-color: var(--green); }
 .batch-actions button, .dashboard nav button {
   border: 1px solid var(--border); border-radius: 7px; padding: 10px 14px;
   background: #151e2b; color: var(--text); font: inherit; font-weight: 700; cursor: pointer;

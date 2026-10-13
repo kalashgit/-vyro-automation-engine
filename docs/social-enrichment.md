@@ -57,9 +57,11 @@ are excluded.
 
 Visit `/enrichment` using the existing admin authentication. The screen can preview
 and explicitly queue a social-profile batch by campaign, category and size; default
-size is 4,000 and the maximum is 5,000. Preview does not create jobs. Queueing creates
-only durable enrichment jobs; it does not approve contacts or send messages. The
-worker must be running and social enrichment enabled before jobs will complete.
+size is 4,000 and the maximum is 5,000. It includes an opt-in retry for recent
+configuration, daily-budget and identical-search deferrals. Preview does not create
+jobs. Queueing creates only durable enrichment jobs; it does not approve contacts
+or send messages. The worker must be running and social enrichment enabled before
+jobs will complete.
 Results show profiles, provenance, duplicate record IDs, needs-review notes and queue
 counts. Pagination is 50 records. An imported URL keeps its original import timestamp;
 it is not reported as freshly verified. The JSON read endpoint is

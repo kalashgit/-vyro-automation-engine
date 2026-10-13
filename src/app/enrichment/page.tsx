@@ -12,7 +12,7 @@ function defaultCampaign() {
 
 export default function Enrichment() {
  const [offset,setOffset]=useState(0),[data,setData]=useState<Result|null>(null),[error,setError]=useState('');
- const [campaign,setCampaign]=useState(defaultCampaign),[category,setCategory]=useState(''),[limit,setLimit]=useState(4000);
+ const [campaign,setCampaign]=useState(defaultCampaign),[category,setCategory]=useState(''),[limit,setLimit]=useState(4000),[retryDeferred,setRetryDeferred]=useState(false);
  const [batch,setBatch]=useState<BatchResult|null>(null),[batchError,setBatchError]=useState(''),[batchBusy,setBatchBusy]=useState(false),[refresh,setRefresh]=useState(0);
  useEffect(()=>{
   const controller=new AbortController();
@@ -28,7 +28,7 @@ export default function Enrichment() {
   setBatchBusy(true);setBatchError('');
   try {
    const response=await fetch('/api/enrichment/batch',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',
-    body:JSON.stringify({action,mode:'social_profiles',campaign,limit,...(category?{category}:{} )})});
+    body:JSON.stringify({action,mode:'social_profiles',campaign,limit,retryDeferred,...(category?{category}:{} )})});
    const body=await response.json();
    if(!response.ok)throw new Error(body.message??body.error??'Batch request failed.');
    if(action==='preview')setBatch(body);
@@ -45,9 +45,12 @@ export default function Enrichment() {
     <label>Campaign label<input disabled={batchBusy} value={campaign} maxLength={40} autoComplete="off" onChange={event=>{setCampaign(event.target.value);changeBatchInput();}} /></label>
     <label>Category<select disabled={batchBusy} value={category} onChange={event=>{setCategory(event.target.value);changeBatchInput();}}>
      <option value="">All eligible categories</option><option value="B2B">B2B</option><option value="B2C">B2C</option><option value="CRE">Creators (CRE)</option>
+     <option value="RES">Resellers (RES)</option><option value="BRK">Brokers (BRK)</option><option value="COM">Communities (COM)</option><option value="SUP">Suppliers (SUP)</option>
     </select></label>
     <label>Maximum records<input disabled={batchBusy} type="number" min={1} max={5000} step={1} value={limit} onChange={event=>{setLimit(Number(event.target.value));changeBatchInput();}} /></label>
    </div>
+   <label className="batch-retry"><input disabled={batchBusy} type="checkbox" checked={retryDeferred} onChange={event=>{setRetryDeferred(event.target.checked);changeBatchInput();}} />
+    Retry recent records deferred for missing search configuration, daily budget, or an identical search already in progress.</label>
    <div className="batch-actions"><button type="button" disabled={batchBusy||!campaign||limit<1||limit>5000} onClick={()=>runBatch('preview')}>{batchBusy?'Working…':'Preview eligible records'}</button>
     <button type="button" disabled={batchBusy||!batch||batch.mode==='enqueued'||batch.selected<1} onClick={()=>runBatch('enqueue')}>Queue {batch?.selected??'selected'} records</button></div>
    {batchError&&<p role="alert" className="batch-error">{batchError}</p>}

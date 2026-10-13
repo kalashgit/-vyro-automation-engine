@@ -15,9 +15,12 @@ type Queryable = Pool | PoolClient;
 type SelectedRecord = { record_id: string };
 
 export class EnrichmentBatchError extends Error {
-  constructor(readonly code: string, message: string) {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
     super(message);
     this.name = 'EnrichmentBatchError';
+    this.code = code;
   }
 }
 
