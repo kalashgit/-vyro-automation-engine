@@ -19,19 +19,20 @@ export function identityOf(row) {
   const country=countryCodes.get((raw.Country||"").trim().toLowerCase()) || null;
   const name=cleanName(raw.Entity);
   const region=cleanName(raw.Location)?.slice(0,200) ?? null;
-  const site=domain(raw["Website/Profile"]||"");
+  const officialSiteEvidence=(raw["Source Platform"]||"").toLowerCase().includes("official site");
+  const site=domain(raw["Website/Profile"]||(officialSiteEvidence?raw["Source URL"]:""));
   return {canonicalProfileUrl:site?null:(profilesFromRecord(raw)[0]?.url??null),canonicalDomain:site,normalizedCompanyName:name,country,region};
 }
 function sameSource(a,b) { return a?.csvSha256===b?.csvSha256 && a?.sourceBatch===b?.sourceBatch; }
 
 /** All rows must validate before opening a transaction. No implicit "VERIFIED" database promotion. */
 export async function importVerifiedLedger(pool,csv,options={}) {
-  const report=validateLedger(csv,{filename:options.filename,requireSupervisorVerified:true});
+  const report=validateLedger(csv,{filename:options.filename,requireSupervisorVerified:true,allowWorkerV51:true});
   if(report.rejected.length) return {status:"rejected",total:report.total,errors:report.rejected};
   if(report.accepted.length===0) throw new Error("No eligible ledger rows.");
   if(report.total>1000) throw new Error("Ledger exceeds the 1,000-row intake limit.");
   const client=await pool.connect();let inTransaction=false;
-  const totals={status:"imported",total:report.total,batches:0,rawRows:0,prospects:0,conflicts:0,deferred:0,replayed:0,reconciliationJobs:0};
+  const totals={status:"imported",certification:report.certification,total:report.total,batches:0,rawRows:0,prospects:0,conflicts:0,deferred:0,replayed:0,reconciliationJobs:0};
   try {
     await client.query("BEGIN");inTransaction=true;
     // Serialize imports across processes; prevents two replays racing on the same batch key.
@@ -43,7 +44,10 @@ export async function importVerifiedLedger(pool,csv,options={}) {
       if(auditBatch.length>200) throw new Error("Source batch ID exceeds the audit key limit.");
       const records=report.accepted.filter(r=>r.sourceWorker===worker && r.sourceBatch===batch);
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",[sourceKey]);
-      const evidence={csvSha256:report.sha256,sourceBatch:batch,auditBatch,filename:options.filename||"",mode:"supervisor_verified",certification:"source_claim_only"};
+      const certification=records[0]?.certification||report.certification||"supervisor_source_claim";
+      const evidence={csvSha256:report.sha256,sourceBatch:batch,auditBatch,filename:options.filename||"",
+        mode:certification==="worker_v51_claim_only"?"worker_v51":"supervisor_verified",
+        certification:certification==="worker_v51_claim_only"?"worker_claim_only":"source_claim_only"};
       const existing=await client.query("SELECT batch_id,original_source_evidence,raw_discovered_count FROM import_batches WHERE source_worker=$1 AND source_batch=$2",[worker,auditBatch]);
       if(existing.rows.length){
         const prev=existing.rows[0];

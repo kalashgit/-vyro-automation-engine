@@ -35,13 +35,14 @@ export async function POST(request: Request) {
   catch { return Response.json({ error: 'FILE_READ_FAILED' }, { status: 400, headers: { 'Cache-Control': 'no-store' } }); }
 
   let report;
-  try { report = validateLedger(csv, { filename, requireSupervisorVerified: true }); }
+  try { report = validateLedger(csv, { filename, requireSupervisorVerified: true, allowWorkerV51: true }); }
   catch (error) {
     return Response.json({ error: 'LEDGER_INVALID', message: error instanceof Error ? error.message : 'Ledger validation failed.' },
       { status: 422, headers: { 'Cache-Control': 'no-store' } });
   }
   const summary = { total: report.total, accepted: report.accepted.length, rejected: report.rejected.length,
-    batches: report.batches.length, errors: report.rejected.slice(0, 50), sha256: report.sha256 };
+    batches: report.batches.length, certification: report.certification,
+    errors: report.rejected.slice(0, 50), sha256: report.sha256 };
   if (action === 'preview') return Response.json({ action, ...summary, writes: 0 }, { headers: { 'Cache-Control': 'no-store' } });
   if (report.rejected.length) return Response.json({ error: 'LEDGER_HAS_REJECTED_ROWS', ...summary }, { status: 422, headers: { 'Cache-Control': 'no-store' } });
   if (process.env.VYRO_LEDGER_IMPORT_ENABLED !== 'true') {

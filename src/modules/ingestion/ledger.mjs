@@ -35,27 +35,50 @@ export function parseCsv(text) {
 }
 function safeText(value,max=200) {return typeof value==="string" && value.length>0 && value.length<=max && !value.includes("\0");}
 export function validateLedger(csv, options={}) {
-  const rows=parseCsv(csv), seenIds=new Set(), rejected=[], accepted=[];
+  const rows=parseCsv(csv), seenIds=new Set(), rejected=[], accepted=[], certifications=new Set();
   const aliases=new Map([["B2B","B2B"],["B2C","B2C"],["RES","RES"],["BRK","BRK"],["CRE","CRE"],["COM","COM"],["SUP","SUP"],["Supply / Strategic Partner","SUP"],["B2C Customer","B2C"],["Broker / Referral Partner","BRK"],["B2B Buyer","B2B"],["Reseller","RES"],["Creator / Influencer","CRE"],["Community / Distribution Owner","COM"]]);
   const originalHash=createHash("sha256").update(csv).digest("hex");
   for(const [index,row] of rows.entries()){
     const id=row["Record ID"],batch=row["Batch ID"],category=aliases.get(row["Worker Category"]);
+    const normalizedSyncStatus=(row["Sync Status"]||"").normalize("NFKC").replace(/[–—]/g,"-").replace(/\s+/g," ").trim().toUpperCase();
+    const normalizedLocalDedupe=(row["Local Dedupe"]||"").normalize("NFKC").replace(/[–—]/g,"-").replace(/\s+/g," ").trim().toUpperCase();
+    const normalizedGlobalDedupe=(row["Global Dedupe"]||"").normalize("NFKC").replace(/[–—]/g,"-").replace(/\s+/g," ").trim().toUpperCase();
+    const isSupervisorVerified=row["Supervisor Status"]==="VERIFIED NEW";
+    const isWorkerV51=options.allowWorkerV51===true
+      && normalizedSyncStatus==="VERIFIED NEW - READY FOR LIBRARY PERSISTENCE - MASTER_SYNC_PENDING"
+      && normalizedLocalDedupe==="PASSED - 100 UNIQUE IDENTITIES; NO DUPLICATE PHONES"
+      && normalizedGlobalDedupe==="PASSED - NO EXACT/FUZZY COLLISION FOUND AGAINST AVAILABLE VYRO B2B + SUPERVISOR VERIFIED + MASTER QUICK-DEDUPE UNIVERSE"
+      && (row["Source Platform"]||"").toUpperCase().includes("OFFICIAL SITE")
+      && category==="B2B";
+    const rowCertification=isSupervisorVerified?"supervisor_source_claim":isWorkerV51?"worker_v51_claim_only":null;
     let reason=null;
     if(!safeText(id) || !safeText(batch) || !category) reason="invalid_source_identity";
     else if(!batch.startsWith(category+"-") || !id.startsWith(batch+"-")) reason="id_batch_mismatch";
     else if(seenIds.has(id)) reason="duplicate_record_id_in_file";
     else if(!safeText(row.Entity,300) || !safeText(row["Source URL"],2048)) reason="missing_identity_or_source";
     else if(!/^https?:\/\//i.test(row["Source URL"])) reason="invalid_source_url";
-    else if(options.requireSupervisorVerified && row["Supervisor Status"]!=="VERIFIED NEW") reason="not_supervisor_verified";
+    else if(options.requireSupervisorVerified && !rowCertification) reason=options.allowWorkerV51?"not_accepted_verification_format":"not_supervisor_verified";
     if(reason) rejected.push({rowNumber:index+2,recordId:id||null,reason});
     else {
       seenIds.add(id);
       accepted.push({recordId:id,sourceBatch:batch,sourceWorker:category,
         originalSourceEvidence:{sourceUrl:row["Source URL"],sourceLedger:row["Supervisor Source Ledger"]||options.filename||"",csvSha256:originalHash},
-        rawPayload:row,sourceRowNumber:index+2});
+        rawPayload:row,sourceRowNumber:index+2,certification:rowCertification});
+      certifications.add(rowCertification);
     }
   }
-  return {sha256:originalHash,total:rows.length,accepted,rejected,
+  if(options.requireSupervisorVerified && certifications.size>1) {
+    for(const record of accepted) rejected.push({rowNumber:record.sourceRowNumber,recordId:record.recordId,reason:"mixed_verification_formats"});
+    accepted.length=0;
+  }
+  if(options.requireSupervisorVerified && certifications.has("worker_v51_claim_only")) {
+    if(rows.length!==100 || accepted.length!==100 || new Set(accepted.map(r=>r.sourceBatch+"|"+r.sourceWorker)).size!==1) {
+      for(const record of accepted) rejected.push({rowNumber:record.sourceRowNumber,recordId:record.recordId,reason:"worker_v51_requires_one_complete_100_row_batch"});
+      accepted.length=0;
+    }
+  }
+  const certification=certifications.size===1?[...certifications][0]:certifications.size>1?"mixed":null;
+  return {sha256:originalHash,total:rows.length,accepted,rejected,certification,
     // Source counts are raw ledger counts, never certified unique across other files.
     batches:[...new Set(accepted.map(r=>r.sourceWorker+"|"+r.sourceBatch))]};
 }

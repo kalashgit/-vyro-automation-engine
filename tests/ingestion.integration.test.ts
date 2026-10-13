@@ -81,4 +81,22 @@ describe("verified ledger Neon intake", {concurrency:false},()=>{
    assert.equal(identity.canonicalDomain,null);
    assert.equal(identity.country,null);
  });
+ test("V5.1 worker claims import as unchecked evidence, not supervisor approval",async()=>{
+   const batch="B2B-20261006-B001";
+   const headers=["Record ID","Batch ID","Worker Category","Entity","Source URL","Source Platform","Local Dedupe","Global Dedupe","Sync Status","Country","Location"];
+   const rows=Array.from({length:100},(_,index)=>[
+     `${batch}-R${String(index+1).padStart(3,"0")}`,batch,"B2B",`Worker Shop ${index+1}`,`https://worker-shop-${index+1}.example.gr/contact`,
+     "XO / official site / public business evidence","PASSED — 100 unique identities; no duplicate phones",
+     "PASSED — no exact/fuzzy collision found against available VYRO B2B + Supervisor Verified + Master Quick-Dedupe universe",
+     "VERIFIED NEW — READY FOR LIBRARY PERSISTENCE — MASTER_SYNC_PENDING","Greece","Athens"
+   ].join(","));
+   const csv=headers.join(",")+"\n"+rows.join("\n")+"\n";
+   const result=imported(await importVerifiedLedger(fixture.pool,csv,{filename:"v51-worker.csv"}));
+   assert.deepEqual([result.rawRows,result.prospects,result.conflicts,result.reconciliationJobs],[100,100,0,100]);
+   const {rows:[evidence]}=await fixture.pool.query("SELECT original_source_evidence FROM import_batches WHERE source_batch LIKE $1 ORDER BY created_at DESC LIMIT 1",[batch+"#%"]);
+   assert.equal(evidence.original_source_evidence.mode,"worker_v51");
+   assert.equal(evidence.original_source_evidence.certification,"worker_claim_only");
+   const {rows:[state]}=await fixture.pool.query("SELECT count(*)::int AS n, count(*) FILTER (WHERE p.verification_status='unverified' AND p.identity_status='unchecked')::int AS unchecked FROM prospects p JOIN import_batches b USING(source_batch_id) WHERE b.source_batch LIKE $1",[batch+"#%"]);
+   assert.deepEqual([state.n,state.unchecked],[100,100]);
+ });
 });
