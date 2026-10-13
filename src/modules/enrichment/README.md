@@ -18,7 +18,9 @@ contact points. It preserves record IDs and the original import audit.
 The authenticated `/enrichment` screen also previews and queues both enrichment
 modes. Social profile batches allow up to 5,000 records; official-site/email batches
 allow up to 100. Queueing creates jobs only. The independent worker and relevant
-mode flags must be configured to process them.
+mode flags must be configured to process them. Results show both the public profile
+observations and official-site email evidence excerpts, source pages, duplicate
+matches, suppression flags and review state. Email candidates remain unverified.
 
 Environment variables must be provided by the process environment (these Node
 scripts do not automatically load `.env` files). No migration runs on startup.

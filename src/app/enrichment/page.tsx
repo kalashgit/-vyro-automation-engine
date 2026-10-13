@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import {useEffect,useState} from 'react';
 
-type Result={counts:{prospects:number;processed:number;with_profiles:number;pending:number;failed:number};prospects:Array<{record_id:string;normalized_company_name:string|null;outcome:string|null;notes:string[]|null;profiles:Array<{url:string;platform:string;source:string;relationship:string;duplicates:string[]}>}>};
+type Result={counts:{prospects:number;social_processed:number;social_with_profiles:number;website_processed:number;website_with_candidates:number;pending:number;failed:number};prospects:Array<{record_id:string;normalized_company_name:string|null;outcome:string|null;notes:string[]|null;website_outcome:string|null;website_reason:string|null;profiles:Array<{url:string;platform:string;source:string;relationship:string;duplicates:string[]}>;emails:Array<{email:string;sourceUrl:string;decision:string;duplicates:string[];suppressed:boolean;excerpt:string;reviewStatus:string}>}>};
 type BatchResult={mode?:string;campaign:string;selected:number;limit:number;category:string|null;sample:string[];created?:number;replayed?:number};
 type EnrichmentMode='social_profiles'|'official_site';
 function defaultCampaign() {
@@ -65,13 +65,23 @@ export default function Enrichment() {
    </div>}
   </section>
   {error?<p role="alert">{error}</p>:!data?<p role="status">Loading results…</p>:<>
-   <section className="panel"><p>{data.counts.processed} of {data.counts.prospects} records processed · {data.counts.with_profiles} with recorded profiles · {data.counts.pending} jobs pending · {data.counts.failed} failed</p></section>
+   <section className="panel"><p>Social profiles: {data.counts.social_processed} processed · {data.counts.social_with_profiles} with profiles</p>
+    <p>Business websites: {data.counts.website_processed} processed · {data.counts.website_with_candidates} with email candidates</p>
+    <p>{data.counts.prospects} prospects · {data.counts.pending} enrichment jobs pending · {data.counts.failed} failed</p></section>
    {data.prospects.length===0?<p>No records on this page.</p>:data.prospects.map(p=><article className="panel" key={p.record_id}>
-    <h2>{p.normalized_company_name??p.record_id}</h2><p>{p.record_id} · {p.outcome?.replaceAll('_',' ')??'Not processed'}</p>
+    <h2>{p.normalized_company_name??p.record_id}</h2><p>{p.record_id}</p>
+    <h3>Social profiles · {p.outcome?.replaceAll('_',' ')??'Not processed'}</h3>
     {p.profiles.length===0?<p>No account routes recorded.</p>:<ul>{p.profiles.map((a,i)=><li key={a.url+a.source+i}>
      <a href={a.url} target="_blank" rel="noreferrer">{a.platform}: {a.url}</a> — {a.relationship.replaceAll('_',' ')} · <a href={a.source} target="_blank" rel="noreferrer">Source</a>
      {a.duplicates.length>0&&<p>Also associated with: {a.duplicates.join(', ')}. Review before use.</p>}
     </li>)}</ul>}{p.notes?.length?<p>{p.notes.join(' · ').replaceAll('_',' ').toLowerCase()}</p>:null}
+    <h3>Business website · {p.website_outcome?.replaceAll('_',' ')??'Not processed'}</h3>
+    {p.website_reason&&<p>{p.website_reason.replaceAll('_',' ').toLowerCase()}</p>}
+    {p.emails.length===0?<p>No public email candidates recorded.</p>:<ul>{p.emails.map((candidate,i)=><li key={candidate.email+candidate.sourceUrl+i}>
+     <strong>{candidate.email}</strong> — {candidate.decision} · {candidate.reviewStatus} review · {candidate.suppressed?'suppressed':'not suppressed'} · not delivery verified
+     <p><a href={candidate.sourceUrl} target="_blank" rel="noreferrer">Evidence source</a>{candidate.duplicates.length>0?` · possible duplicates: ${candidate.duplicates.join(', ')}`:''}</p>
+     <details><summary>Evidence excerpt</summary><p>{candidate.excerpt}</p></details>
+    </li>)}</ul>}
    </article>)}
    <nav aria-label="Result pages"><button disabled={offset===0} onClick={()=>move(Math.max(0,offset-50))}>Previous</button>{' '}
     <span>Page {offset/50+1}</span>{' '}<button disabled={offset+50>=data.counts.prospects} onClick={()=>move(offset+50)}>Next</button></nav>
