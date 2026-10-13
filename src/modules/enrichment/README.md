@@ -15,6 +15,11 @@ contact points. It preserves record IDs and the original import audit.
 4. Run `WORKER_ENABLED=true ACQUISITION_HANDLERS_ENABLED=true ENRICHMENT_ENABLED=true npm run worker`.
    Keep `WORKER_CONCURRENCY=1` for collection initially.
 
+The authenticated `/enrichment` screen also previews and queues both enrichment
+modes. Social profile batches allow up to 5,000 records; official-site/email batches
+allow up to 100. Queueing creates jobs only. The independent worker and relevant
+mode flags must be configured to process them.
+
 Environment variables must be provided by the process environment (these Node
 scripts do not automatically load `.env` files). No migration runs on startup.
 The selector requires previously reconciled identities, excludes pending

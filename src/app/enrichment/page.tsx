@@ -4,6 +4,7 @@ import {useEffect,useState} from 'react';
 
 type Result={counts:{prospects:number;processed:number;with_profiles:number;pending:number;failed:number};prospects:Array<{record_id:string;normalized_company_name:string|null;outcome:string|null;notes:string[]|null;profiles:Array<{url:string;platform:string;source:string;relationship:string;duplicates:string[]}>}>};
 type BatchResult={mode?:string;campaign:string;selected:number;limit:number;category:string|null;sample:string[];created?:number;replayed?:number};
+type EnrichmentMode='social_profiles'|'official_site';
 function defaultCampaign() {
  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Athens',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());
  const date=Object.fromEntries(parts.map(part=>[part.type,part.value]));
@@ -12,7 +13,7 @@ function defaultCampaign() {
 
 export default function Enrichment() {
  const [offset,setOffset]=useState(0),[data,setData]=useState<Result|null>(null),[error,setError]=useState('');
- const [campaign,setCampaign]=useState(defaultCampaign),[category,setCategory]=useState(''),[limit,setLimit]=useState(4000),[retryDeferred,setRetryDeferred]=useState(false);
+ const [campaign,setCampaign]=useState(defaultCampaign),[category,setCategory]=useState(''),[limit,setLimit]=useState(4000),[retryDeferred,setRetryDeferred]=useState(false),[mode,setMode]=useState<EnrichmentMode>('social_profiles');
  const [batch,setBatch]=useState<BatchResult|null>(null),[batchError,setBatchError]=useState(''),[batchBusy,setBatchBusy]=useState(false),[refresh,setRefresh]=useState(0);
  useEffect(()=>{
   const controller=new AbortController();
@@ -28,7 +29,7 @@ export default function Enrichment() {
   setBatchBusy(true);setBatchError('');
   try {
    const response=await fetch('/api/enrichment/batch',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',
-    body:JSON.stringify({action,mode:'social_profiles',campaign,limit,retryDeferred,...(category?{category}:{} )})});
+    body:JSON.stringify({action,mode,campaign,limit,retryDeferred:mode==='social_profiles'&&retryDeferred,...(category?{category}:{} )})});
    const body=await response.json();
    if(!response.ok)throw new Error(body.message??body.error??'Batch request failed.');
    if(action==='preview')setBatch(body);
@@ -37,21 +38,24 @@ export default function Enrichment() {
   finally {setBatchBusy(false);}
  }
  return <main className="dashboard"><Link href="/">← Dashboard</Link><header className="page-header"><h1>Enrichment results</h1>
-  <p>Public account routes for manual review. Account ownership, availability and direct messaging remain unverified.</p></header>
+  <p>Public evidence for manual review. Account ownership, availability and direct messaging remain unverified.</p></header>
   <section className="panel enrichment-launch" aria-labelledby="batch-heading">
-   <p className="eyebrow">Social account enrichment</p><h2 id="batch-heading">Prepare a prospect batch</h2>
+   <p className="eyebrow">Enrichment</p><h2 id="batch-heading">Prepare a prospect batch</h2>
    <p className="muted">Preview the eligible records first. Queueing creates enrichment jobs only; it does not send messages or approve contacts. A configured worker must be running to process the queue.</p>
    <div className="batch-fields">
     <label>Campaign label<input disabled={batchBusy} value={campaign} maxLength={40} autoComplete="off" onChange={event=>{setCampaign(event.target.value);changeBatchInput();}} /></label>
+    <label>Enrichment type<select disabled={batchBusy} value={mode} onChange={event=>{const next=event.target.value as EnrichmentMode;setMode(next);setLimit(next==='social_profiles'?4000:25);setRetryDeferred(false);changeBatchInput();}}>
+     <option value="social_profiles">Public social profiles · up to 5,000</option><option value="official_site">Business website and public email · up to 100</option>
+    </select></label>
     <label>Category<select disabled={batchBusy} value={category} onChange={event=>{setCategory(event.target.value);changeBatchInput();}}>
      <option value="">All eligible categories</option><option value="B2B">B2B</option><option value="B2C">B2C</option><option value="CRE">Creators (CRE)</option>
      <option value="RES">Resellers (RES)</option><option value="BRK">Brokers (BRK)</option><option value="COM">Communities (COM)</option><option value="SUP">Suppliers (SUP)</option>
     </select></label>
-    <label>Maximum records<input disabled={batchBusy} type="number" min={1} max={5000} step={1} value={limit} onChange={event=>{setLimit(Number(event.target.value));changeBatchInput();}} /></label>
+    <label>Maximum records<input disabled={batchBusy} type="number" min={1} max={mode==='social_profiles'?5000:100} step={1} value={limit} onChange={event=>{setLimit(Number(event.target.value));changeBatchInput();}} /></label>
    </div>
-   <label className="batch-retry"><input disabled={batchBusy} type="checkbox" checked={retryDeferred} onChange={event=>{setRetryDeferred(event.target.checked);changeBatchInput();}} />
-    Retry recent records deferred for missing search configuration, daily budget, or an identical search already in progress.</label>
-   <div className="batch-actions"><button type="button" disabled={batchBusy||!campaign||limit<1||limit>5000} onClick={()=>runBatch('preview')}>{batchBusy?'Working…':'Preview eligible records'}</button>
+   {mode==='social_profiles'&&<label className="batch-retry"><input disabled={batchBusy} type="checkbox" checked={retryDeferred} onChange={event=>{setRetryDeferred(event.target.checked);changeBatchInput();}} />
+    Retry recent records deferred for missing search configuration, daily budget, or an identical search already in progress.</label>}
+   <div className="batch-actions"><button type="button" disabled={batchBusy||!campaign||limit<1||limit>(mode==='social_profiles'?5000:100)} onClick={()=>runBatch('preview')}>{batchBusy?'Working…':'Preview eligible records'}</button>
     <button type="button" disabled={batchBusy||!batch||batch.mode==='enqueued'||batch.selected<1} onClick={()=>runBatch('enqueue')}>Queue {batch?.selected??'selected'} records</button></div>
    {batchError&&<p role="alert" className="batch-error">{batchError}</p>}
    {batch&&<div role="status" className="batch-summary"><strong>{batch.mode==='enqueued'?`${batch.created??0} jobs queued`:`${batch.selected} eligible records`}</strong>
